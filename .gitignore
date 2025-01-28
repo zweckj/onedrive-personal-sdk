@@ -1,0 +1,5 @@
+secrets.yaml
+run.py
+.venv
+.mypy_cache
+onedrive_personal_sdk/__pycache__/*
