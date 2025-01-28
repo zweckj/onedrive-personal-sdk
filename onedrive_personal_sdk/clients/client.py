@@ -7,32 +7,37 @@ from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
 from onedrive_personal_sdk.exceptions import OneDriveException
 
-from onedrive_personal_sdk.models.items import File, Folder
+from onedrive_personal_sdk.models.items import File, Folder, ItemUpdate
 
 
 class OneDriveClient(OneDriveBaseClient):
     """OneDrive API client."""
+
+    def _dict_to_item(self, item: dict) -> File | Folder:
+        if "folder" in item:
+            return Folder.from_dict(item)
+        if "file" in item:
+            return File.from_dict(item)
+        raise OneDriveException("Unknown item type")
 
     async def get_drive_item(self, path: str) -> File | Folder:
         """Get a drive item by path."""
         result = await self._request_json(
             HttpMethod.GET, GRAPH_BASE_URL + f"/me/drive/{path}:"
         )
-        if "folder" in result:
-            return Folder.from_dict(result)
-        if "file" in result:
-            return File.from_dict(result)
-        raise OneDriveException("Unknown item type")
+        return self._dict_to_item(result)
+
 
     async def get_approot(self) -> Folder:
         """Get the approot."""
         return cast(Folder, await self.get_drive_item("special/approot"))
 
-    async def list_drive_items(self, item_id: str) -> dict:
+    async def list_drive_items(self, item_id: str) -> list[File | Folder]:
         """List items in a drive."""
-        return await self._request_json(
+        response = await self._request_json(
             HttpMethod.GET, GRAPH_BASE_URL + f"/me/drive/items/{item_id}/children"
         )
+        return [self._dict_to_item(item) for item in response["value"]]
 
     async def delete_drive_item(self, path: str) -> None:
         """Delete items in a drive."""
@@ -49,20 +54,21 @@ class OneDriveClient(OneDriveBaseClient):
         )
         return response.content
 
-    async def update_drive_item(self, item_id: str, data: dict) -> dict:
+    async def update_drive_item(self, item_id: str, data: ItemUpdate) -> File | Folder:
         """Update items in a drive."""
-        return await self._request_json(
-            HttpMethod.PATCH, GRAPH_BASE_URL + f"/me/drive/items/{item_id}", json=data
+        response = await self._request_json(
+            HttpMethod.PATCH, GRAPH_BASE_URL + f"/me/drive/items/{item_id}", json=data.to_dict()
         )
+        return self._dict_to_item(response)
 
     async def create_folder(
         self,
         parent_id: str,
         name: str,
         conflict_behaviour: ConflictBehavior = ConflictBehavior.RENAME,
-    ) -> dict:
+    ) -> Folder:
         """Create a folder in a drive."""
-        return await self._request_json(
+        response = await self._request_json(
             HttpMethod.POST,
             GRAPH_BASE_URL + f"/me/drive/items/{parent_id}/children",
             json={
@@ -71,3 +77,4 @@ class OneDriveClient(OneDriveBaseClient):
                 "@microsoft.graph.conflictBehavior": conflict_behaviour.value,
             },
         )
+        return Folder.from_dict(response)

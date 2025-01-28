@@ -45,14 +45,13 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
     async def upload_file(
         self,
-        description: str | None = None,
         defer_commit: bool = False,
         conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
     ) -> None:
         """Wrapper for handling the file upload"""
 
         upload_session = await self._create_upload_session(
-            description, defer_commit, conflict_behaviour
+            defer_commit, conflict_behaviour
         )
 
         retries = 0
@@ -70,22 +69,15 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
     async def _create_upload_session(
         self,
-        description: str | None = None,
         defer_commit: bool = False,
         conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
     ) -> LargeFileUploadSession:
         """Create a large file upload session"""
-        item = {
-            "@microsoft.graph.conflictBehavior": conflict_behaviour.value,
-            "name": self._file.name,
-            "fileSize": self._file.size,
-        }
-
-        if description:
-            item["description"] = description
 
         content = {
-            "item": item,
+            "item": {
+                "@microsoft.graph.conflictBehavior": conflict_behaviour.value,
+            },
             "deferCommit": defer_commit,
         }
 

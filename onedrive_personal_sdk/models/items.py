@@ -10,9 +10,9 @@ class ItemParentReference(DataClassJSONMixin):
     """Parent reference for an item."""
 
     id: str
-    name: str
     drive_id: str = field(metadata=field_options(alias="driveId"))
     path: str
+    name: str | None = None
 
 
 @dataclass
@@ -31,9 +31,9 @@ class Item(DataClassJSONMixin):
 class Hashes(DataClassJSONMixin):
     """Hashes for an item."""
 
-    quick_xor_hash: str = field(metadata=field_options(alias="quickXorHash"))
-    sha1_hash: str = field(metadata=field_options(alias="sha1Hash"))
-    sha256_hash: str = field(metadata=field_options(alias="sha256Hash"))
+    quick_xor_hash: str | None = field(metadata=field_options(alias="quickXorHash"), default=None)
+    sha1_hash: str | None = field(metadata=field_options(alias="sha1Hash"), default=None)
+    sha256_hash: str | None = field(metadata=field_options(alias="sha256Hash"), default=None)
 
 
 @dataclass
@@ -42,6 +42,7 @@ class File(Item):
 
     hashes: Hashes
     mime_type: str
+    description: str | None = None
 
     @classmethod
     def __pre_deserialize__(cls, d: dict) -> dict:
@@ -56,9 +57,22 @@ class Folder(Item):
     """Describes a folder item."""
 
     child_count: int
+    description: str | None = None
 
     @classmethod
     def __pre_deserialize__(cls, d: dict) -> dict:
         folder = d["folder"]
         d["child_count"] = folder["childCount"]
         return d
+
+
+@dataclass
+class ItemUpdate(DataClassJSONMixin):
+    """Update data for an item."""
+
+    name: str | None = None
+    description: str | None = None
+    parent_reference: ItemParentReference | None = None
+
+    def __post_serialize__(self, d: dict) -> dict:
+        return {k: v for k, v in d.items() if v is not None}

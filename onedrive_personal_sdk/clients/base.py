@@ -3,8 +3,8 @@
 from aiohttp import ClientSession, ClientError, ClientResponse
 from abc import abstractmethod
 
-from .const import HttpMethod
-from .exceptions import HttpRequestException, ClientException
+from onedrive_personal_sdk.const import HttpMethod
+from onedrive_personal_sdk.exceptions import HttpRequestException, ClientException
 
 
 class TokenProvider:
