@@ -1,3 +1,3 @@
-from .client import OneDriveClient
-from .base import TokenProvider
-from .large_file_upload import LargeFileUploadClient
+from .clients.client import OneDriveClient
+from .clients.base import TokenProvider
+from .clients.large_file_upload import LargeFileUploadClient

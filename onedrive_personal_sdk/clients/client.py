@@ -3,11 +3,11 @@
 from aiohttp import StreamReader
 from typing import cast
 
-from .base import OneDriveBaseClient
-from .const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
-from .exceptions import OneDriveException
+from onedrive_personal_sdk.clients.base import OneDriveBaseClient
+from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
+from onedrive_personal_sdk.exceptions import OneDriveException
 
-from .models import File, Folder
+from onedrive_personal_sdk.models.items import File, Folder
 
 
 class OneDriveClient(OneDriveBaseClient):
