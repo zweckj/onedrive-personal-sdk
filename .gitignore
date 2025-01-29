@@ -178,5 +178,4 @@ run.py
 .venv
 .mypy_cache
 onedrive_personal_sdk/__pycache__/*
-test.txt
-myfile.tar
+testfiles/*
