@@ -8,7 +8,6 @@ from aiohttp import StreamReader
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
 from onedrive_personal_sdk.exceptions import (
-    HttpRequestException,
     NotFoundError,
     OneDriveException,
 )

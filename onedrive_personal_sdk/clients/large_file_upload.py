@@ -8,7 +8,7 @@ from aiohttp import ClientSession
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient, TokenProvider
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
-from onedrive_personal_sdk.exceptions import HttpRequestException
+from onedrive_personal_sdk.exceptions import HashMismatchError, HttpRequestException
 from onedrive_personal_sdk.models.items import File
 from onedrive_personal_sdk.models.upload import (
     FileInfo,
@@ -16,6 +16,7 @@ from onedrive_personal_sdk.models.upload import (
     LargeFileUploadSession,
     UploadBuffer,
 )
+from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
 MAX_RETRIES = 5
@@ -53,6 +54,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         upload_chunk_size: int = UPLOAD_CHUNK_SIZE,
         session: ClientSession | None = None,
         defer_commit: bool = False,
+        validate_hash: bool = True,
         conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
     ) -> File:
         """Upload a file."""
@@ -70,7 +72,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         retries = 0
         while retries < self._max_retries:
             try:
-                return await self._upload_file(upload_session)
+                return await self._upload_file(upload_session, validate_hash)
             except HttpRequestException as err:
                 if err.status_code == 404:
                     _LOGGER.debug("Session not found, restarting")
@@ -101,13 +103,18 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         return upload_session
 
-    async def _upload_file(self, upload_session: LargeFileUploadSession) -> File:
+    async def _upload_file(
+        self, upload_session: LargeFileUploadSession, validate_hash: bool
+    ) -> File:
         """Upload the file to the session."""
 
         retries = 0
+        quick_xor_hash = QuickXorHash()
+        result = {}
 
         async for chunk in self._file.content_stream:
             self._buffer.buffer += chunk
+            quick_xor_hash.update(chunk)
             if self._buffer.length >= self._upload_chunk_size:
                 uploaded_chunks = 0
                 while (
@@ -146,13 +153,16 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         if retries > self._max_retries:
                             raise
                         continue
-                    self._upload_result = LargeFileChunkUploadResult.from_dict(
-                        chunk_result
-                    )
-                    _LOGGER.debug(
-                        "Next expected range: %s",
-                        self._upload_result.next_expected_ranges,
-                    )
+                    if "file" in chunk_result:  # last chunk, no more ranges
+                        result = chunk_result
+                    else:
+                        self._upload_result = LargeFileChunkUploadResult.from_dict(
+                            chunk_result
+                        )
+                        _LOGGER.debug(
+                            "Next expected range: %s",
+                            self._upload_result.next_expected_ranges,
+                        )
                     retries = 0
                     self._start += self._upload_chunk_size
 
@@ -182,11 +192,21 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 self._start + self._buffer.length - 1,
                 self._buffer.buffer,
             )
-            return File.from_dict(result)
             # except APIError:
             #     await self._commit_file(upload_session)
         # if upload_session.deferred_commit:
         #     await self.commit_file(upload_session)
+
+        file = File.from_dict(result)
+
+        if validate_hash:
+            if file.hashes.quick_xor_hash != (hash_b64 := quick_xor_hash.base64()):
+                raise HashMismatchError(
+                    f"Hash mismatch for {self._file.name}: Online:{file.hashes.quick_xor_hash} != Calculated: {hash_b64}"
+                )
+            _LOGGER.debug("Hashes match")
+
+        return file
 
     async def _async_upload_chunk(
         self, upload_url: str, start: int, end: int, chunk_data: bytearray

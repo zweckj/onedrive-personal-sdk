@@ -1,3 +1,5 @@
+"""Exceptions for OneDrive."""
+
 from aiohttp import ClientError
 
 
@@ -24,3 +26,7 @@ class NotFoundError(HttpRequestException):
 
 class ClientException(ClientError, OneDriveException):
     """Exception raised when an API request fails."""
+
+
+class HashMismatchError(OneDriveException):
+    """Exception raised when the hash of a file does not match."""
