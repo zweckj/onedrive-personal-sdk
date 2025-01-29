@@ -9,7 +9,7 @@ from aiohttp import StreamReader
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
 from onedrive_personal_sdk.exceptions import HttpRequestException, OneDriveException
-from onedrive_personal_sdk.models.items import File, Folder, ItemUpdate
+from onedrive_personal_sdk.models.items import AppRoot, File, Folder, ItemUpdate
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,19 +26,24 @@ class OneDriveClient(OneDriveBaseClient):
 
     async def get_drive_item(self, path: str) -> File | Folder:
         """Get a drive item by path."""
+        if path != "root":
+            path += ":"
         result = await self._request_json(
-            HttpMethod.GET, GRAPH_BASE_URL + f"/me/drive/{path}:"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/{path}"
         )
         return self._dict_to_item(result)
 
-    async def get_approot(self) -> Folder:
+    async def get_approot(self) -> AppRoot:
         """Get the approot."""
-        return cast(Folder, await self.get_drive_item("special/approot"))
+        result = await self._request_json(
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/special/approot:"
+        )
+        return AppRoot.from_dict(result)
 
     async def list_drive_items(self, item_id: str) -> list[File | Folder]:
         """List items in a drive."""
         response = await self._request_json(
-            HttpMethod.GET, GRAPH_BASE_URL + f"/me/drive/items/{item_id}/children"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{item_id}/children"
         )
         return [self._dict_to_item(item) for item in response["value"]]
 
@@ -46,14 +51,14 @@ class OneDriveClient(OneDriveBaseClient):
         """Delete items in a drive."""
         await self._request_json(
             HttpMethod.DELETE,
-            GRAPH_BASE_URL + f"/me/drive/items/{path}:",
+            f"{GRAPH_BASE_URL}/me/drive/items/{path}:",
             content_type=None,
         )
 
     async def download_drive_item(self, path: str) -> StreamReader:
         """Download items in a drive."""
         response = await self._request(
-            HttpMethod.GET, GRAPH_BASE_URL + f"/me/drive/items/{path}:/content"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path}:/content"
         )
         return response.content
 
@@ -61,7 +66,7 @@ class OneDriveClient(OneDriveBaseClient):
         """Update items in a drive."""
         response = await self._request_json(
             HttpMethod.PATCH,
-            GRAPH_BASE_URL + f"/me/drive/items/{item_id}",
+            f"{GRAPH_BASE_URL}/me/drive/items/{item_id}",
             json=data.to_dict(),
         )
         return self._dict_to_item(response)
@@ -80,7 +85,7 @@ class OneDriveClient(OneDriveBaseClient):
                 _LOGGER.debug("Creating folder %s in %s", name, parent_id)
                 response = await self._request_json(
                     HttpMethod.POST,
-                    GRAPH_BASE_URL + f"/me/drive/items/{parent_id}/children",
+                    f"{GRAPH_BASE_URL}/me/drive/items/{parent_id}/children",
                     json={
                         "name": name,
                         "folder": {},
@@ -103,7 +108,7 @@ class OneDriveClient(OneDriveBaseClient):
         headers = {"Content-Type": "text/plain"}
         response = await self._request_json(
             HttpMethod.PUT,
-            GRAPH_BASE_URL + f"/me/drive/items/{parent_id}:/{file_name}:/content",
+            f"{GRAPH_BASE_URL}/me/drive/items/{parent_id}:/{file_name}:/content",
             data=file_stream,
             headers=headers,
         )

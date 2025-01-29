@@ -74,6 +74,33 @@ class Folder(Item):
 
 
 @dataclass
+class ItemOwner(DataClassJSONMixin):
+    """Owner of an item."""
+
+    id: str
+    email: str
+    display_name: str = field(metadata=field_options(alias="displayName"))
+
+
+@dataclass
+class AppRoot(Item):
+    """Describes a folder item."""
+
+    child_count: int
+    owner: ItemOwner
+
+    @classmethod
+    def __pre_deserialize__(cls, d: dict) -> dict:
+        folder = d["folder"]
+        d["child_count"] = folder["childCount"]
+        shared = d["shared"]
+        owner = shared["owner"]
+        user = owner["user"]
+        d["owner"] = user
+        return d
+
+
+@dataclass
 class ItemUpdate(DataClassJSONMixin):
     """Update data for an item."""
 
