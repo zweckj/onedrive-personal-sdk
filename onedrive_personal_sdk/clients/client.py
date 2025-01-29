@@ -84,7 +84,7 @@ class OneDriveClient(OneDriveBaseClient):
     ) -> Folder:
         """Create a folder in a drive."""
         try:
-            await self.get_drive_item(f"{parent_id}:/{name}")
+            await self.get_drive_item(f"{parent_id}:/{name}:")
         except NotFoundError:
             _LOGGER.debug("Creating folder %s in %s", name, parent_id)
             response = await self._request_json(
