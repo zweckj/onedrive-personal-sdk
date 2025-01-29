@@ -26,12 +26,13 @@ _LOGGER = logging.getLogger(__name__)
 class LargeFileUploadClient(OneDriveBaseClient):
     """Upload large files chunked."""
 
+    _max_retries = (MAX_RETRIES,)
+    _upload_chunk_size = (UPLOAD_CHUNK_SIZE,)
+
     def __init__(
         self,
         token_provider: TokenProvider,
         file: FileInfo,
-        max_retries: int = MAX_RETRIES,
-        upload_chunk_size: int = UPLOAD_CHUNK_SIZE,
         session: ClientSession | None = None,
     ) -> None:
         """Initialize the upload."""
@@ -39,10 +40,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
         super().__init__(token_provider, session)
 
         self._file = file
+
         self._start = 0
         self._buffer = UploadBuffer()
-        self._upload_chunk_size = upload_chunk_size
-        self._max_retries = max_retries
         self._upload_result = LargeFileChunkUploadResult(datetime.now(), ["0-"])
 
     @classmethod
@@ -61,10 +61,11 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self = cls(
             token_provider,
             file,
-            max_retries,
-            upload_chunk_size,
             session,
         )
+        self._upload_chunk_size = upload_chunk_size
+        self._max_retries = max_retries
+
         upload_session = await self._create_upload_session(
             defer_commit, conflict_behaviour
         )
@@ -77,6 +78,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 if err.status_code == 404:
                     _LOGGER.debug("Session not found, restarting")
                     self._buffer = UploadBuffer()
+                    self._upload_result = LargeFileChunkUploadResult(
+                        datetime.now(), ["0-"]
+                    )
                     self._start = 0
                     retries += 1
                 else:
