@@ -1,6 +1,7 @@
 """Models for OneDrive drive items."""
 
 from dataclasses import dataclass, field
+
 from mashumaro import field_options
 from mashumaro.mixins.json import DataClassJSONMixin
 
@@ -31,9 +32,15 @@ class Item(DataClassJSONMixin):
 class Hashes(DataClassJSONMixin):
     """Hashes for an item."""
 
-    quick_xor_hash: str | None = field(metadata=field_options(alias="quickXorHash"), default=None)
-    sha1_hash: str | None = field(metadata=field_options(alias="sha1Hash"), default=None)
-    sha256_hash: str | None = field(metadata=field_options(alias="sha256Hash"), default=None)
+    quick_xor_hash: str | None = field(
+        metadata=field_options(alias="quickXorHash"), default=None
+    )
+    sha1_hash: str | None = field(
+        metadata=field_options(alias="sha1Hash"), default=None
+    )
+    sha256_hash: str | None = field(
+        metadata=field_options(alias="sha256Hash"), default=None
+    )
 
 
 @dataclass
