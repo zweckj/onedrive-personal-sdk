@@ -29,7 +29,7 @@ class OneDriveBaseClient:
         self, method: HttpMethod, url: str, authorize: bool = True, **kwargs
     ) -> ClientResponse:
         """Make a request to the API."""
-        headers = kwargs.get("headers", {})
+        headers = kwargs.pop("headers", {})
         if authorize:
             token = await self._token_provider.async_get_access_token()
             headers["Authorization"] = f"Bearer {token}"

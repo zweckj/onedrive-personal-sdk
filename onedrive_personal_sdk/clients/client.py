@@ -1,13 +1,17 @@
 """The OneDrive API client."""
 
-from aiohttp import StreamReader
 from typing import cast
+from collections.abc import AsyncIterator
+import logging
+
+from aiohttp import StreamReader
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
-from onedrive_personal_sdk.exceptions import OneDriveException
-
+from onedrive_personal_sdk.exceptions import OneDriveException, HttpRequestException
 from onedrive_personal_sdk.models.items import File, Folder, ItemUpdate
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class OneDriveClient(OneDriveBaseClient):
@@ -26,7 +30,6 @@ class OneDriveClient(OneDriveBaseClient):
             HttpMethod.GET, GRAPH_BASE_URL + f"/me/drive/{path}:"
         )
         return self._dict_to_item(result)
-
 
     async def get_approot(self) -> Folder:
         """Get the approot."""
@@ -57,7 +60,9 @@ class OneDriveClient(OneDriveBaseClient):
     async def update_drive_item(self, item_id: str, data: ItemUpdate) -> File | Folder:
         """Update items in a drive."""
         response = await self._request_json(
-            HttpMethod.PATCH, GRAPH_BASE_URL + f"/me/drive/items/{item_id}", json=data.to_dict()
+            HttpMethod.PATCH,
+            GRAPH_BASE_URL + f"/me/drive/items/{item_id}",
+            json=data.to_dict(),
         )
         return self._dict_to_item(response)
 
@@ -65,16 +70,41 @@ class OneDriveClient(OneDriveBaseClient):
         self,
         parent_id: str,
         name: str,
-        conflict_behaviour: ConflictBehavior = ConflictBehavior.RENAME,
+        fail_if_exists: bool = False,
     ) -> Folder:
         """Create a folder in a drive."""
+        try:
+            await self.get_drive_item(f"{parent_id}:/{name}")
+        except HttpRequestException as err:
+            if err.status_code == 404:
+                _LOGGER.debug("Creating folder %s in %s", name, parent_id)
+                response = await self._request_json(
+                    HttpMethod.POST,
+                    GRAPH_BASE_URL + f"/me/drive/items/{parent_id}/children",
+                    json={
+                        "name": name,
+                        "folder": {},
+                        "@microsoft.graph.conflictBehavior": ConflictBehavior.FAIL.value,
+                    },
+                )
+                return Folder.from_dict(response)
+            raise
+        _LOGGER.debug("Folder %s already exists in %s", name, parent_id)
+        if fail_if_exists:
+            raise OneDriveException("Folder already exists")
+
+    async def upload_file(
+        self,
+        parent_id: str,
+        file_name: str,
+        file_stream: AsyncIterator[bytes],
+    ) -> File:
+        """Upload a file to a drive. Max 250MB file size."""
+        headers = {"Content-Type": "text/plain"}
         response = await self._request_json(
-            HttpMethod.POST,
-            GRAPH_BASE_URL + f"/me/drive/items/{parent_id}/children",
-            json={
-                "name": name,
-                "folder": {},
-                "@microsoft.graph.conflictBehavior": conflict_behaviour.value,
-            },
+            HttpMethod.PUT,
+            GRAPH_BASE_URL + f"/me/drive/items/{parent_id}:/{file_name}:/content",
+            data=file_stream,
+            headers=headers,
         )
-        return Folder.from_dict(response)
+        return File.from_dict(response)
