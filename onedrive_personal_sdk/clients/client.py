@@ -2,13 +2,16 @@
 
 import logging
 from collections.abc import AsyncIterator
-from typing import cast
 
 from aiohttp import StreamReader
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
-from onedrive_personal_sdk.exceptions import HttpRequestException, OneDriveException
+from onedrive_personal_sdk.exceptions import (
+    HttpRequestException,
+    NotFoundError,
+    OneDriveException,
+)
 from onedrive_personal_sdk.models.items import AppRoot, File, Folder, ItemUpdate
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,12 +27,10 @@ class OneDriveClient(OneDriveBaseClient):
             return File.from_dict(item)
         raise OneDriveException("Unknown item type")
 
-    async def get_drive_item(self, path: str) -> File | Folder:
+    async def get_drive_item(self, path_or_id: str) -> File | Folder:
         """Get a drive item by path."""
-        if path != "root":
-            path += ":"
         result = await self._request_json(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/{path}"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/{path_or_id}"
         )
         return self._dict_to_item(result)
 
@@ -40,33 +41,37 @@ class OneDriveClient(OneDriveBaseClient):
         )
         return AppRoot.from_dict(result)
 
-    async def list_drive_items(self, item_id: str) -> list[File | Folder]:
+    async def list_drive_items(self, path_or_id: str) -> list[File | Folder]:
         """List items in a drive."""
+
         response = await self._request_json(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{item_id}/children"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/children"
         )
         return [self._dict_to_item(item) for item in response["value"]]
 
-    async def delete_drive_item(self, path: str) -> None:
+    async def delete_drive_item(self, path_or_id: str) -> None:
         """Delete items in a drive."""
+
         await self._request_json(
             HttpMethod.DELETE,
-            f"{GRAPH_BASE_URL}/me/drive/items/{path}:",
+            f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}",
             content_type=None,
         )
 
-    async def download_drive_item(self, path: str) -> StreamReader:
+    async def download_drive_item(self, path_or_id: str) -> StreamReader:
         """Download items in a drive."""
         response = await self._request(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path}:/content"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/content"
         )
         return response.content
 
-    async def update_drive_item(self, item_id: str, data: ItemUpdate) -> File | Folder:
+    async def update_drive_item(
+        self, path_or_id: str, data: ItemUpdate
+    ) -> File | Folder:
         """Update items in a drive."""
         response = await self._request_json(
             HttpMethod.PATCH,
-            f"{GRAPH_BASE_URL}/me/drive/items/{item_id}",
+            f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}",
             json=data.to_dict(),
         )
         return self._dict_to_item(response)
@@ -80,20 +85,18 @@ class OneDriveClient(OneDriveBaseClient):
         """Create a folder in a drive."""
         try:
             await self.get_drive_item(f"{parent_id}:/{name}")
-        except HttpRequestException as err:
-            if err.status_code == 404:
-                _LOGGER.debug("Creating folder %s in %s", name, parent_id)
-                response = await self._request_json(
-                    HttpMethod.POST,
-                    f"{GRAPH_BASE_URL}/me/drive/items/{parent_id}/children",
-                    json={
-                        "name": name,
-                        "folder": {},
-                        "@microsoft.graph.conflictBehavior": ConflictBehavior.FAIL.value,
-                    },
-                )
-                return Folder.from_dict(response)
-            raise
+        except NotFoundError:
+            _LOGGER.debug("Creating folder %s in %s", name, parent_id)
+            response = await self._request_json(
+                HttpMethod.POST,
+                f"{GRAPH_BASE_URL}/me/drive/items/{parent_id}/children",
+                json={
+                    "name": name,
+                    "folder": {},
+                    "@microsoft.graph.conflictBehavior": ConflictBehavior.FAIL.value,
+                },
+            )
+            return Folder.from_dict(response)
         _LOGGER.debug("Folder %s already exists in %s", name, parent_id)
         if fail_if_exists:
             raise OneDriveException("Folder already exists")

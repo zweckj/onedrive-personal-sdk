@@ -14,5 +14,13 @@ class HttpRequestException(OneDriveException):
         self.status_code = status_code
 
 
+class AuthenticationError(HttpRequestException):
+    """Exception raised when authentication fails."""
+
+
+class NotFoundError(HttpRequestException):
+    """Exception raised when item is not found."""
+
+
 class ClientException(ClientError, OneDriveException):
     """Exception raised when an API request fails."""

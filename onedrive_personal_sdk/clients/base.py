@@ -5,7 +5,12 @@ from abc import abstractmethod
 from aiohttp import ClientError, ClientResponse, ClientSession
 
 from onedrive_personal_sdk.const import HttpMethod
-from onedrive_personal_sdk.exceptions import ClientException, HttpRequestException
+from onedrive_personal_sdk.exceptions import (
+    AuthenticationError,
+    ClientException,
+    HttpRequestException,
+    NotFoundError,
+)
 
 
 class TokenProvider:
@@ -43,6 +48,10 @@ class OneDriveBaseClient:
             raise ClientException from err
 
         if response.status >= 400:
+            if response.status in (401, 403):
+                raise AuthenticationError(response.status, await response.text())
+            if response.status == 404:
+                raise NotFoundError(response.status, await response.text())
             raise HttpRequestException(response.status, await response.text())
         return response
 

@@ -9,6 +9,7 @@ from aiohttp import ClientSession
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient, TokenProvider
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
 from onedrive_personal_sdk.exceptions import HttpRequestException
+from onedrive_personal_sdk.models.items import File
 from onedrive_personal_sdk.models.upload import (
     FileInfo,
     LargeFileChunkUploadResult,
@@ -43,13 +44,25 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self._max_retries = max_retries
         self._upload_result = LargeFileChunkUploadResult(datetime.now(), ["0-"])
 
-    async def upload_file(
-        self,
+    @classmethod
+    async def upload(
+        cls,
+        token_provider: TokenProvider,
+        file: FileInfo,
+        max_retries: int = MAX_RETRIES,
+        upload_chunk_size: int = UPLOAD_CHUNK_SIZE,
+        session: ClientSession | None = None,
         defer_commit: bool = False,
         conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
-    ) -> None:
-        """Wrapper for handling the file upload"""
-
+    ) -> File:
+        """Upload a file."""
+        self = cls(
+            token_provider,
+            file,
+            max_retries,
+            upload_chunk_size,
+            session,
+        )
         upload_session = await self._create_upload_session(
             defer_commit, conflict_behaviour
         )
@@ -57,7 +70,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         retries = 0
         while retries < self._max_retries:
             try:
-                await self._upload_file(upload_session)
+                return await self._upload_file(upload_session)
             except HttpRequestException as err:
                 if err.status_code == 404:
                     _LOGGER.debug("Session not found, restarting")
@@ -88,7 +101,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         return upload_session
 
-    async def _upload_file(self, upload_session: LargeFileUploadSession) -> None:
+    async def _upload_file(self, upload_session: LargeFileUploadSession) -> File:
         """Upload the file to the session."""
 
         retries = 0
@@ -102,7 +115,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 ) > self._upload_chunk_size:  # Loop in case the buffer is >= UPLOAD_CHUNK_SIZE * 2
                     slice_start = uploaded_chunks * self._upload_chunk_size
                     try:
-                        self._upload_result = await self._async_upload_chunk(
+                        chunk_result = await self._async_upload_chunk(
                             upload_session.upload_url,
                             self._start,
                             self._start + self._upload_chunk_size - 1,
@@ -133,6 +146,13 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         if retries > self._max_retries:
                             raise
                         continue
+                    self._upload_result = LargeFileChunkUploadResult.from_dict(
+                        chunk_result
+                    )
+                    _LOGGER.debug(
+                        "Next expected range: %s",
+                        self._upload_result.next_expected_ranges,
+                    )
                     retries = 0
                     self._start += self._upload_chunk_size
 
@@ -156,12 +176,13 @@ class LargeFileUploadClient(OneDriveBaseClient):
         if self._buffer.buffer:
             _LOGGER.debug("Last chunk")
             # try:
-            await self._async_upload_chunk(
+            result = await self._async_upload_chunk(
                 upload_session.upload_url,
                 self._start,
                 self._start + self._buffer.length - 1,
                 self._buffer.buffer,
             )
+            return File.from_dict(result)
             # except APIError:
             #     await self._commit_file(upload_session)
         # if upload_session.deferred_commit:
@@ -169,7 +190,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
     async def _async_upload_chunk(
         self, upload_url: str, start: int, end: int, chunk_data: bytearray
-    ) -> LargeFileChunkUploadResult:
+    ) -> dict:
         """Upload a part to the session."""
 
         headers: dict[str, str] = {}
@@ -184,12 +205,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
             headers=headers,
             data=chunk_data,
         )
-
-        chunk_result = LargeFileChunkUploadResult.from_dict(result)
-        _LOGGER.debug(
-            "Next expected range: %s-", chunk_result.next_expected_range_start
-        )
-        return chunk_result
+        return result
 
     # async def _get_next_expected_ranges(self) -> list[int]:
     #     """Query the API for the next expected byte range."""
@@ -220,7 +236,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
     ) -> None:
         """Commit file manually."""
 
-        url = f"https://graph.microsoft.com/v1.0/me/drive/{self._file.folder_path_id}:"
+        url = f"{GRAPH_BASE_URL}/me/drive/{self._file.folder_path_id}:"
         content = {
             "name": self._file.name,
             "@microsoft.graph.conflictBehavior": conflict_behaviour,
