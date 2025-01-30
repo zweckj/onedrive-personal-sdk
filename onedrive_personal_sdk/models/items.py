@@ -1,5 +1,7 @@
 """Models for OneDrive drive items."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from mashumaro import field_options
@@ -26,6 +28,7 @@ class Item(DataClassJSONMixin):
         metadata=field_options(alias="parentReference")
     )
     size: int
+    created_by: CreatedBy = field(metadata=field_options(alias="createdBy"))
 
 
 @dataclass
@@ -74,7 +77,15 @@ class Folder(Item):
 
 
 @dataclass
-class ItemOwner(DataClassJSONMixin):
+class Application(DataClassJSONMixin):
+    """Application data."""
+
+    id: str
+    display_name: str = field(metadata=field_options(alias="displayName"))
+
+
+@dataclass
+class User(DataClassJSONMixin):
     """Owner of an item."""
 
     id: str
@@ -83,20 +94,23 @@ class ItemOwner(DataClassJSONMixin):
 
 
 @dataclass
+class CreatedBy(DataClassJSONMixin):
+    """Owner of an item."""
+
+    user: User | None = None
+    application: Application | None = None
+
+
+@dataclass
 class AppRoot(Item):
     """Describes a folder item."""
 
     child_count: int
-    owner: ItemOwner
 
     @classmethod
     def __pre_deserialize__(cls, d: dict) -> dict:
         folder = d["folder"]
         d["child_count"] = folder["childCount"]
-        shared = d["shared"]
-        owner = shared["owner"]
-        user = owner["user"]
-        d["owner"] = user
         return d
 
 
