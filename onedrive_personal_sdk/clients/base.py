@@ -17,7 +17,7 @@ class TokenProvider:
     """Class that provides auth tokens."""
 
     @abstractmethod
-    async def async_get_access_token(self) -> str:
+    def async_get_access_token(self) -> str:
         """Get the access token."""
 
 
@@ -37,7 +37,7 @@ class OneDriveBaseClient:
         """Make a request to the API."""
         headers = kwargs.pop("headers", {})
         if authorize:
-            token = await self._token_provider.async_get_access_token()
+            token = self._token_provider.async_get_access_token()
             headers["Authorization"] = f"Bearer {token}"
 
         try:

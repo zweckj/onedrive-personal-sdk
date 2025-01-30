@@ -66,14 +66,14 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self._upload_chunk_size = upload_chunk_size
         self._max_retries = max_retries
 
-        upload_session = await self._create_upload_session(
+        upload_session = await self.create_upload_session(
             defer_commit, conflict_behaviour
         )
 
         retries = 0
         while retries < self._max_retries:
             try:
-                return await self._upload_file(upload_session, validate_hash)
+                return await self.start_upload(upload_session, validate_hash)
             except HttpRequestException as err:
                 if err.status_code == 404:
                     _LOGGER.debug("Session not found, restarting")
@@ -86,7 +86,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 else:
                     raise
 
-    async def _create_upload_session(
+    async def create_upload_session(
         self,
         defer_commit: bool = False,
         conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
@@ -107,7 +107,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         return upload_session
 
-    async def _upload_file(
+    async def start_upload(
         self, upload_session: LargeFileUploadSession, validate_hash: bool
     ) -> File:
         """Upload the file to the session."""
