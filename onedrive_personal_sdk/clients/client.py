@@ -3,7 +3,7 @@
 import logging
 from collections.abc import AsyncIterator
 
-from aiohttp import StreamReader
+from aiohttp import StreamReader, ClientTimeout
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
@@ -57,10 +57,14 @@ class OneDriveClient(OneDriveBaseClient):
             content_type=None,
         )
 
-    async def download_drive_item(self, path_or_id: str) -> StreamReader:
+    async def download_drive_item(
+        self, path_or_id: str, timeout: ClientTimeout = ClientTimeout()
+    ) -> StreamReader:
         """Download items in a drive."""
         response = await self._request(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/content"
+            HttpMethod.GET,
+            f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/content",
+            timeout=timeout,
         )
         return response.content
 
@@ -105,6 +109,7 @@ class OneDriveClient(OneDriveBaseClient):
         parent_id: str,
         file_name: str,
         file_stream: AsyncIterator[bytes],
+        timeout: ClientTimeout = ClientTimeout(),
     ) -> File:
         """Upload a file to a drive. Max 250MB file size."""
         headers = {"Content-Type": "text/plain"}
@@ -113,5 +118,6 @@ class OneDriveClient(OneDriveBaseClient):
             f"{GRAPH_BASE_URL}/me/drive/items/{parent_id}:/{file_name}:/content",
             data=file_stream,
             headers=headers,
+            timeout=timeout,
         )
         return File.from_dict(response)
