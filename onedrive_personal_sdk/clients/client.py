@@ -29,7 +29,7 @@ class OneDriveClient(OneDriveBaseClient):
     async def get_drive_item(self, path_or_id: str) -> File | Folder:
         """Get a drive item by path."""
         result = await self._request_json(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/{path_or_id}"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}"
         )
         return self._dict_to_item(result)
 
@@ -87,7 +87,7 @@ class OneDriveClient(OneDriveBaseClient):
     ) -> Folder:
         """Create a folder in a drive."""
         try:
-            await self.get_drive_item(f"{parent_id}:/{name}:")
+            item = await self.get_drive_item(f"{parent_id}:/{name}:")
         except NotFoundError:
             _LOGGER.debug("Creating folder %s in %s", name, parent_id)
             response = await self._request_json(
@@ -100,9 +100,13 @@ class OneDriveClient(OneDriveBaseClient):
                 },
             )
             return Folder.from_dict(response)
+        if not isinstance(item, Folder):
+            raise OneDriveException("Item exists but is not a folder")
         _LOGGER.debug("Folder %s already exists in %s", name, parent_id)
         if fail_if_exists:
             raise OneDriveException("Folder already exists")
+        return item
+        
 
     async def upload_file(
         self,

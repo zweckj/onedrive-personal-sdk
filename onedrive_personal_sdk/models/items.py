@@ -28,7 +28,7 @@ class Item(DataClassJSONMixin):
         metadata=field_options(alias="parentReference")
     )
     size: int
-    created_by: CreatedBy = field(metadata=field_options(alias="createdBy"))
+    created_by: Contributor = field(metadata=field_options(alias="createdBy"))
 
 
 @dataclass
@@ -80,21 +80,22 @@ class Folder(Item):
 class Application(DataClassJSONMixin):
     """Application data."""
 
-    id: str
-    display_name: str = field(metadata=field_options(alias="displayName"))
+    id: str | None = None
+    display_name: str | None = field(metadata=field_options(alias="displayName"), default=None)
 
 
 @dataclass
 class User(DataClassJSONMixin):
     """Owner of an item."""
 
-    id: str
-    email: str
-    display_name: str = field(metadata=field_options(alias="displayName"))
+    id: str | None = None
+    email: str | None = None
+    display_name: str | None = field(metadata=field_options(alias="displayName"), default=None)
+    
 
 
 @dataclass
-class CreatedBy(DataClassJSONMixin):
+class Contributor(DataClassJSONMixin):
     """Owner of an item."""
 
     user: User | None = None
