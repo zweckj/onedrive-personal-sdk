@@ -8,7 +8,11 @@ from aiohttp import ClientSession
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient, TokenProvider
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
-from onedrive_personal_sdk.exceptions import HashMismatchError, HttpRequestException
+from onedrive_personal_sdk.exceptions import (
+    HashMismatchError,
+    HttpRequestException,
+    OneDriveException,
+)
 from onedrive_personal_sdk.models.items import File
 from onedrive_personal_sdk.models.upload import (
     FileInfo,
@@ -198,10 +202,11 @@ class LargeFileUploadClient(OneDriveBaseClient):
             )
             # except APIError:
             #     await self._commit_file(upload_session)
-        # if upload_session.deferred_commit:
-        #     await self.commit_file(upload_session)
 
-        file = File.from_dict(result)
+        if upload_session.deferred_commit:
+            file = await self.commit_file(upload_session)
+        else:
+            file = File.from_dict(result)
 
         if validate_hash:
             if file.hashes.quick_xor_hash != (hash_b64 := quick_xor_hash.base64()):
@@ -231,6 +236,23 @@ class LargeFileUploadClient(OneDriveBaseClient):
         )
         return result
 
+    async def commit_file(
+        self,
+        upload_session: LargeFileUploadSession,
+    ) -> File:
+        """Commit file manually."""
+
+        result = await self._request(
+            HttpMethod.POST, upload_session.upload_url, authorize=False
+        )
+        if result.status != 201:
+            raise OneDriveException(f"Failed to commit file, status: {result.status}")
+        result = await self._request_json(
+            HttpMethod.GET,
+            f"{GRAPH_BASE_URL}/me/drive/items/{self._file.folder_path_id}:/{self._file.name}:",
+        )
+        return File.from_dict(result)
+
     # async def _get_next_expected_ranges(self) -> list[int]:
     #     """Query the API for the next expected byte range."""
     #     response = await self._request_json(HttpMethod.GET, self._upload_url, authorize=False)
@@ -252,18 +274,3 @@ class LargeFileUploadClient(OneDriveBaseClient):
     #         raise Exception()
     #     self._buffer = chunk_data[expected_start:]
     #     self._buffer_size = len(self._buffer[0])
-
-    async def _commit_file(
-        self,
-        upload_session: LargeFileUploadSession,
-        conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
-    ) -> None:
-        """Commit file manually."""
-
-        url = f"{GRAPH_BASE_URL}/me/drive/{self._file.folder_path_id}:"
-        content = {
-            "name": self._file.name,
-            "@microsoft.graph.conflictBehavior": conflict_behaviour,
-            "@microsoft.graph.sourceUrl": upload_session.upload_url,
-        }
-        await self._request_json(HttpMethod.PUT, url, json=content)
