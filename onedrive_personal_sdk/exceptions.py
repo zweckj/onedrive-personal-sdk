@@ -30,3 +30,12 @@ class ClientException(ClientError, OneDriveException):
 
 class HashMismatchError(OneDriveException):
     """Exception raised when the hash of a file does not match."""
+
+
+class ExpectedRangeNotInBufferError(OneDriveException):
+    """Exception raised when the expected range is not in the buffer."""
+
+    def __init__(self, expected_start: int) -> None:
+        """Initialize the exception."""
+        super().__init__(f"Expected range '{expected_start}-' not in buffer")
+        self.expected_start = expected_start

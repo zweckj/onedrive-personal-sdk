@@ -12,6 +12,7 @@ from onedrive_personal_sdk.exceptions import (
     HashMismatchError,
     HttpRequestException,
     OneDriveException,
+    ExpectedRangeNotInBufferError,
 )
 from onedrive_personal_sdk.models.items import File
 from onedrive_personal_sdk.models.upload import (
@@ -89,6 +90,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     retries += 1
                 else:
                     raise
+            # except ExpectedRangeNotInBufferError:
+            #     raise  # TODO: Implement fix range
 
     async def create_upload_session(
         self,
@@ -147,7 +150,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         # # 416, range not satisfiable, retry with new range
                         # if err.status_code == 416:
                         #     _LOGGER.debug("Range not satisfiable, retrying")
-                        #     await self._fix_range(chunk_data)
+                        #     await self._fix_range(upload_session)
+                        #     uploaded_chunks = 0
+                        #     continue
                         if err.status_code == 404:
                             _LOGGER.debug("Session not found, restarting")
                             raise
@@ -176,12 +181,11 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
                     # # returned range is not what we expected, fix range
                     # if self._start != (
-                    #     expected_range := int(
-                    #         upload_result.next_expected_ranges[0].split("-")[0]
-                    #     )
+                    #     expected_range := self._upload_result.next_expected_range_start
                     # ):
                     #     _LOGGER.debug("Slice start did not expected slice")
-                    #     await self._fix_range(chunk_data, expected_range)
+                    #     await self._fix_range(upload_session, expected_range)
+                    #     uploaded_chunks = 0
                     #     continue
 
                     uploaded_chunks += 1
@@ -253,24 +257,28 @@ class LargeFileUploadClient(OneDriveBaseClient):
         )
         return File.from_dict(result)
 
-    # async def _get_next_expected_ranges(self) -> list[int]:
-    #     """Query the API for the next expected byte range."""
-    #     response = await self._request_json(HttpMethod.GET, self._upload_url, authorize=False)
-    #     expected_ranges = cast(list[str], response["nextExpectedRanges"])
-    #     return [int(expected_range.split("-")[0]) for expected_range in expected_ranges]
+    async def _fix_range(
+        self,
+        upload_session: LargeFileUploadSession,
+        expected_start: int | None = None,
+    ) -> None:
+        """Move the buffer to the expected range."""
+        if expected_start is None:
+            next_expected_ranges = await self._get_next_expected_ranges(upload_session)
+            expected_start = next_expected_ranges.next_expected_range_start
+        if not (
+            self._buffer.start_byte
+            <= expected_start
+            < (self._start + self._buffer.length)
+        ):
+            raise ExpectedRangeNotInBufferError(expected_start=expected_start)
+        self._buffer.buffer = self._buffer.buffer[expected_start:]
 
-    # async def _fix_range(
-    #     self, chunk_data: bytes, expected_start: int | None = None
-    # ) -> None:
-    #     """Move the buffer to the expected range."""
-    #     if expected_start is None:
-    #         next_expected_ranges = await self._get_next_expected_ranges()
-    #         expected_start = next_expected_ranges[0]
-    #     if not (
-    #         self._buffer_start_byte
-    #         <= expected_start
-    #         < (self._start + self._buffer_size)
-    #     ):
-    #         raise Exception()
-    #     self._buffer = chunk_data[expected_start:]
-    #     self._buffer_size = len(self._buffer[0])
+    async def _get_next_expected_ranges(
+        self, upload_session: LargeFileUploadSession
+    ) -> LargeFileChunkUploadResult:
+        """Query the API for the next expected byte range."""
+        response = await self._request_json(
+            HttpMethod.GET, upload_session.upload_url, authorize=False
+        )
+        return LargeFileChunkUploadResult.from_dict(response)
