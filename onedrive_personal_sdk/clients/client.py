@@ -42,11 +42,15 @@ class OneDriveClient(OneDriveBaseClient):
 
     async def list_drive_items(self, path_or_id: str) -> list[File | Folder]:
         """List items in a drive."""
-
-        response = await self._request_json(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/children"
-        )
-        return [self._dict_to_item(item) for item in response["value"]]
+        items: list[File | Folder] = []
+        next_link = "start"
+        while next_link:
+            response = await self._request_json(
+                HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/children"
+            )
+            items.extend(self._dict_to_item(item) for item in response["value"])
+            next_link = response.get("@odata.nextLink", "")
+        return items
 
     async def delete_drive_item(self, path_or_id: str) -> None:
         """Delete items in a drive."""
