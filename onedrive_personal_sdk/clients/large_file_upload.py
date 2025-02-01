@@ -24,15 +24,16 @@ from onedrive_personal_sdk.models.upload import (
 from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
-MAX_RETRIES = 5
+MAX_RETRIES = 2
+MAX_CHUNK_RETRIES = 5
 _LOGGER = logging.getLogger(__name__)
 
 
 class LargeFileUploadClient(OneDriveBaseClient):
     """Upload large files chunked."""
 
-    _max_retries = (MAX_RETRIES,)
-    _upload_chunk_size = (UPLOAD_CHUNK_SIZE,)
+    _max_retries = MAX_RETRIES
+    _upload_chunk_size = UPLOAD_CHUNK_SIZE
 
     def __init__(
         self,
@@ -88,10 +89,11 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     )
                     self._start = 0
                     retries += 1
-                else:
-                    raise
+                    continue
+                raise
             # except ExpectedRangeNotInBufferError:
             #     raise  # TODO: Implement fix range
+        raise OneDriveException("Failed to upload file")
 
     async def create_upload_session(
         self,
@@ -157,13 +159,13 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             _LOGGER.debug("Session not found, restarting")
                             raise
                         retries += 1
-                        if retries > self._max_retries:
+                        if retries > MAX_CHUNK_RETRIES:
                             raise
                         continue
                     except TimeoutError:
                         _LOGGER.debug("Timeout error, retrying")
                         retries += 1
-                        if retries > self._max_retries:
+                        if retries > MAX_CHUNK_RETRIES:
                             raise
                         continue
                     if "file" in chunk_result:  # last chunk, no more ranges
