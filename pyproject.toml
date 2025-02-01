@@ -1,6 +1,6 @@
 [project]
 name = "onedrive-personal-sdk"
-version = "0.0.1a6"
+version = "0.0.1"
 license = {text = "MIT License"}
 description = "A package to interact with the Microsoft Graph API for personal OneDrives."
 readme = "README.md"
@@ -8,7 +8,7 @@ authors = [{name = "Josef Zweck", email = "josef@zweck.dev"}]
 maintainers = [{name = "Josef Zweck", email = "josef@zweck.dev"}]
 keywords = ["OneDrive", "Graph", "api", "async", "client"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Framework :: AsyncIO",
     "Intended Audience :: Developers",
     "Natural Language :: English",
