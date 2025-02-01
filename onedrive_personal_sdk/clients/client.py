@@ -43,10 +43,10 @@ class OneDriveClient(OneDriveBaseClient):
     async def list_drive_items(self, path_or_id: str) -> list[File | Folder]:
         """List items in a drive."""
         items: list[File | Folder] = []
-        next_link = "start"
+        next_link = f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/children"
         while next_link:
             response = await self._request_json(
-                HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/children"
+                HttpMethod.GET, next_link
             )
             items.extend(self._dict_to_item(item) for item in response["value"])
             next_link = response.get("@odata.nextLink", "")
