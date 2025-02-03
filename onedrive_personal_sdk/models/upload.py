@@ -12,17 +12,23 @@ from mashumaro.mixins.json import DataClassJSONMixin
 class LargeFileChunkUploadResult(DataClassJSONMixin):
     """Result of uploading a large file chunk."""
 
-    expiration_date_time: datetime = field(
-        metadata=field_options(alias="expirationDateTime")
+    expiration_date_time: datetime | None = field(
+        metadata=field_options(alias="expirationDateTime"),
+        default=None,
     )
-    next_expected_ranges: list[str] = field(
-        metadata=field_options(alias="nextExpectedRanges")
+    next_expected_ranges: list[str] | None = field(
+        metadata=field_options(alias="nextExpectedRanges"),
+        default=None,
     )
 
     @property
-    def next_expected_range_start(self) -> int:
+    def next_expected_range_start(self) -> int | None:
         """Get the start of the next expected range."""
-        return int(self.next_expected_ranges[0].split("-")[0])
+        return (
+            int(self.next_expected_ranges[0].split("-")[0])
+            if self.next_expected_ranges
+            else None
+        )
 
 
 @dataclass

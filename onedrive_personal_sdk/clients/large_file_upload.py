@@ -7,12 +7,13 @@ from datetime import datetime
 from aiohttp import ClientSession
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient, TokenProvider
-from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
+from onedrive_personal_sdk.const import GRAPH_BASE_URL, HttpMethod
 from onedrive_personal_sdk.exceptions import (
     HashMismatchError,
     HttpRequestException,
     OneDriveException,
     ExpectedRangeNotInBufferError,
+    UploadSessionExpired,
 )
 from onedrive_personal_sdk.models.items import File
 from onedrive_personal_sdk.models.upload import (
@@ -25,7 +26,7 @@ from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
 MAX_RETRIES = 2
-MAX_CHUNK_RETRIES = 5
+MAX_CHUNK_RETRIES = 6
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -61,7 +62,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
         session: ClientSession | None = None,
         defer_commit: bool = False,
         validate_hash: bool = True,
-        conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
     ) -> File:
         """Upload a file."""
         self = cls(
@@ -72,42 +72,28 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self._upload_chunk_size = upload_chunk_size
         self._max_retries = max_retries
 
-        upload_session = await self.create_upload_session(
-            defer_commit, conflict_behaviour
-        )
+        upload_session = await self.create_upload_session(defer_commit)
 
         retries = 0
         while retries < self._max_retries:
             try:
                 return await self.start_upload(upload_session, validate_hash)
-            except HttpRequestException as err:
-                if err.status_code == 404:
-                    _LOGGER.debug("Session not found, restarting")
-                    self._buffer = UploadBuffer()
-                    self._upload_result = LargeFileChunkUploadResult(
-                        datetime.now(), ["0-"]
-                    )
-                    self._start = 0
-                    retries += 1
-                    continue
-                raise
+            except UploadSessionExpired:
+                _LOGGER.debug("Session expired/not found, restarting")
+                self._buffer = UploadBuffer()
+                self._upload_result = LargeFileChunkUploadResult(datetime.now(), ["0-"])
+                self._start = 0
+                retries += 1
             # except ExpectedRangeNotInBufferError:
-            #     raise  # TODO: Implement fix range
+            #     raise  # TODO: Implement fix range by replaying
         raise OneDriveException("Failed to upload file")
 
     async def create_upload_session(
-        self,
-        defer_commit: bool = False,
-        conflict_behaviour: ConflictBehavior = ConflictBehavior.FAIL,
+        self, defer_commit: bool = False
     ) -> LargeFileUploadSession:
         """Create a large file upload session"""
 
-        content = {
-            "item": {
-                "@microsoft.graph.conflictBehavior": conflict_behaviour.value,
-            },
-            "deferCommit": defer_commit,
-        }
+        content = {"deferCommit": defer_commit}
 
         url = f"{GRAPH_BASE_URL}/me/drive/items/{self._file.folder_path_id}:/{self._file.name}:/createUploadSession"
         response = await self._request_json(HttpMethod.POST, url=url, json=content)
@@ -144,53 +130,93 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             ],
                         )
                     except HttpRequestException as err:
-                        if upload_session.expiration_date_time <= datetime.now():
-                            raise
-                        # 500 error, wait then retry
-                        if int(err.status_code / 100) == 5:
-                            await asyncio.sleep(2**retries)
-                        # # 416, range not satisfiable, retry with new range
-                        # if err.status_code == 416:
-                        #     _LOGGER.debug("Range not satisfiable, retrying")
-                        #     await self._fix_range(upload_session)
-                        #     uploaded_chunks = 0
-                        #     continue
-                        if err.status_code == 404:
-                            _LOGGER.debug("Session not found, restarting")
-                            raise
+                        _LOGGER.debug(
+                            "Error during upload of chunk %s: %s: %s",
+                            self._upload_result.next_expected_ranges,
+                            err.status_code,
+                            err,
+                        )
                         retries += 1
                         if retries > MAX_CHUNK_RETRIES:
                             raise
-                        continue
+                        if (
+                            self._upload_result.expiration_date_time
+                            and self._upload_result.expiration_date_time
+                            <= datetime.now()
+                        ):
+                            _LOGGER.debug("Session expired")
+                            raise UploadSessionExpired from err
+                        if err.status_code == 404:
+                            _LOGGER.debug("Session not found")
+                            raise UploadSessionExpired from err
+                        # 500 error, wait then retry
+                        if int(err.status_code / 100) == 5:
+                            await asyncio.sleep(2**retries)
+                            continue
+                        # range not satisfiable, retry with new range
+                        if err.status_code in (409, 416):
+                            next_expected_ranges = await self._get_next_expected_ranges(
+                                upload_session
+                            )
+                            # wants same range again, retry
+                            if (
+                                next_expected_ranges.next_expected_range_start
+                                == self._start
+                            ):
+                                _LOGGER.debug("Retrying same range")
+                                continue
+                            # it just wants the next regular range
+                            if next_expected_ranges.next_expected_range_start == (
+                                self._start + self._upload_chunk_size
+                            ):
+                                _LOGGER.debug("Next range is next regular range")
+                                self._upload_result = next_expected_ranges
+                            # wants a different range, try to fix it
+                            else:
+                                _LOGGER.debug(
+                                    "Range not satisfiable, at %s, expected: %s",
+                                    self._start,
+                                    next_expected_ranges.next_expected_range_start,
+                                )
+                                await self._fix_range(
+                                    next_expected_ranges.next_expected_range_start
+                                )
+                                uploaded_chunks = 0
+                                continue
+                        else:
+                            raise
                     except TimeoutError:
                         _LOGGER.debug("Timeout error, retrying")
                         retries += 1
                         if retries > MAX_CHUNK_RETRIES:
                             raise
+                        await asyncio.sleep(2**retries)
                         continue
-                    if "file" in chunk_result:  # last chunk, no more ranges
-                        result = chunk_result
                     else:
-                        self._upload_result = LargeFileChunkUploadResult.from_dict(
-                            chunk_result
-                        )
-                        _LOGGER.debug(
-                            "Next expected range: %s",
-                            self._upload_result.next_expected_ranges,
-                        )
+                        if "file" in chunk_result:  # last chunk, no more ranges
+                            result = chunk_result
+                        else:
+                            self._upload_result = LargeFileChunkUploadResult.from_dict(
+                                chunk_result
+                            )
+                            _LOGGER.debug(
+                                "Next expected range: %s",
+                                self._upload_result.next_expected_ranges,
+                            )
+                            print(self._upload_result.next_expected_ranges)
                     retries = 0
                     self._start += self._upload_chunk_size
-
-                    # # returned range is not what we expected, fix range
-                    # if self._start != (
-                    #     expected_range := self._upload_result.next_expected_range_start
-                    # ):
-                    #     _LOGGER.debug("Slice start did not expected slice")
-                    #     await self._fix_range(upload_session, expected_range)
-                    #     uploaded_chunks = 0
-                    #     continue
-
                     uploaded_chunks += 1
+
+                    # returned range is not what we expected, fix range
+                    if self._start != (
+                        expected_range := self._upload_result.next_expected_range_start
+                    ):
+                        _LOGGER.debug("Slice start did not expected slice")
+                        await self._fix_range(expected_range)
+                        uploaded_chunks = 0
+                        continue
+
                 self._buffer.buffer = self._buffer.buffer[
                     self._upload_chunk_size * uploaded_chunks :
                 ]
@@ -253,28 +279,31 @@ class LargeFileUploadClient(OneDriveBaseClient):
         )
         if result.status != 201:
             raise OneDriveException(f"Failed to commit file, status: {result.status}")
-        result = await self._request_json(
+        result_json = await self._request_json(
             HttpMethod.GET,
             f"{GRAPH_BASE_URL}/me/drive/items/{self._file.folder_path_id}:/{self._file.name}:",
         )
-        return File.from_dict(result)
+        return File.from_dict(result_json)
 
-    async def _fix_range(
-        self,
-        upload_session: LargeFileUploadSession,
-        expected_start: int | None = None,
-    ) -> None:
+    async def _fix_range(self, expected_start: int | None) -> None:
         """Move the buffer to the expected range."""
         if expected_start is None:
-            next_expected_ranges = await self._get_next_expected_ranges(upload_session)
-            expected_start = next_expected_ranges.next_expected_range_start
+            # we are at the end
+            _LOGGER.debug("Expected range is None, clearing buffer")
+            self._buffer.buffer = bytearray()
+            return
         if not (
             self._buffer.start_byte
             <= expected_start
             < (self._start + self._buffer.length)
         ):
             raise ExpectedRangeNotInBufferError(expected_start=expected_start)
-        self._buffer.buffer = self._buffer.buffer[expected_start:]
+        _LOGGER.debug("Fixing range to %s", expected_start)
+        self._buffer.buffer = self._buffer.buffer[
+            (expected_start - self._buffer.start_byte) :
+        ]
+        self._buffer.start_byte = expected_start
+        self._start = expected_start
 
     async def _get_next_expected_ranges(
         self, upload_session: LargeFileUploadSession

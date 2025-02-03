@@ -39,3 +39,7 @@ class ExpectedRangeNotInBufferError(OneDriveException):
         """Initialize the exception."""
         super().__init__(f"Expected range '{expected_start}-' not in buffer")
         self.expected_start = expected_start
+
+
+class UploadSessionExpired(OneDriveException):
+    """Exception raised when the upload session has expired."""
