@@ -281,6 +281,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         upload_session: LargeFileUploadSession,
     ) -> File:
         """Commit file manually."""
+        _LOGGER.debug("Committing file")
 
         result = await self._request(
             HttpMethod.POST, upload_session.upload_url, authorize=False
@@ -317,7 +318,17 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self, upload_session: LargeFileUploadSession
     ) -> LargeFileChunkUploadResult:
         """Query the API for the next expected byte range."""
+        _LOGGER.debug("Getting next expected ranges")
         response = await self._request_json(
             HttpMethod.GET, upload_session.upload_url, authorize=False
         )
-        return LargeFileChunkUploadResult.from_dict(response)
+        upload_result = LargeFileChunkUploadResult.from_dict(response)
+        _LOGGER.debug(
+            "Next expected range from API: %s",
+            (
+                ", ".join(upload_result.next_expected_ranges)
+                if upload_result.next_expected_ranges
+                else "None"
+            ),
+        )
+        return upload_result
