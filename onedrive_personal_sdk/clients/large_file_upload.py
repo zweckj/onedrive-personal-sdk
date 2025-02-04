@@ -7,7 +7,7 @@ from datetime import datetime
 from aiohttp import ClientSession
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient, TokenProvider
-from onedrive_personal_sdk.const import GRAPH_BASE_URL, HttpMethod
+from onedrive_personal_sdk.const import GRAPH_BASE_URL, HttpMethod, ConflictBehavior
 from onedrive_personal_sdk.exceptions import (
     HashMismatchError,
     HttpRequestException,
@@ -62,6 +62,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         session: ClientSession | None = None,
         defer_commit: bool = False,
         validate_hash: bool = True,
+        conflict_behavior: ConflictBehavior = ConflictBehavior.RENAME,
     ) -> File:
         """Upload a file."""
         self = cls(
@@ -72,7 +73,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self._upload_chunk_size = upload_chunk_size
         self._max_retries = max_retries
 
-        upload_session = await self.create_upload_session(defer_commit)
+        upload_session = await self.create_upload_session(
+            defer_commit, conflict_behavior
+        )
 
         retries = 0
         while retries < self._max_retries:
@@ -89,11 +92,17 @@ class LargeFileUploadClient(OneDriveBaseClient):
         raise OneDriveException("Failed to upload file")
 
     async def create_upload_session(
-        self, defer_commit: bool = False
+        self,
+        defer_commit: bool = False,
+        conflict_behavior: ConflictBehavior = ConflictBehavior.RENAME,
     ) -> LargeFileUploadSession:
         """Create a large file upload session"""
 
-        content = {"deferCommit": defer_commit}
+        content = {
+            "item": {"@microsoft.graph.conflictBehavior": conflict_behavior.value},
+            "deferCommit": defer_commit,
+            "name": self._file.name,
+        }
 
         url = f"{GRAPH_BASE_URL}/me/drive/items/{self._file.folder_path_id}:/{self._file.name}:/createUploadSession"
         response = await self._request_json(HttpMethod.POST, url=url, json=content)
@@ -203,7 +212,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
                                 "Next expected range: %s",
                                 self._upload_result.next_expected_ranges,
                             )
-                            print(self._upload_result.next_expected_ranges)
                     retries = 0
                     self._start += self._upload_chunk_size
                     uploaded_chunks += 1
