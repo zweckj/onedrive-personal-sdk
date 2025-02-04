@@ -8,17 +8,17 @@ from mashumaro import field_options
 from mashumaro.mixins.json import DataClassJSONMixin
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ItemParentReference(DataClassJSONMixin):
     """Parent reference for an item."""
 
-    id: str
+    id: str | None = None
     drive_id: str = field(metadata=field_options(alias="driveId"))
-    path: str
+    path: str | None = None
     name: str | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Item(DataClassJSONMixin):
     """Describes a OneDrive item (file or folder)."""
 
@@ -27,11 +27,12 @@ class Item(DataClassJSONMixin):
     parent_reference: ItemParentReference = field(
         metadata=field_options(alias="parentReference")
     )
-    size: int
     created_by: Contributor = field(metadata=field_options(alias="createdBy"))
+    size: int | None = None
+    description: str | None = None
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Hashes(DataClassJSONMixin):
     """Hashes for an item."""
 
@@ -46,55 +47,57 @@ class Hashes(DataClassJSONMixin):
     )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class File(Item):
     """Describes a file item."""
 
     hashes: Hashes
-    mime_type: str
-    description: str | None = None
+    mime_type: str | None = None
 
     @classmethod
     def __pre_deserialize__(cls, d: dict) -> dict:
-        file = d["file"]
-        d["hashes"] = file["hashes"]
-        d["mime_type"] = file["mimeType"]
+        file: dict = d.get("file", {})
+        d["hashes"] = file.get("hashes", {})
+        d["mime_type"] = file.get("mimeType", None)
         return d
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Folder(Item):
     """Describes a folder item."""
 
-    child_count: int
-    description: str | None = None
+    child_count: int | None = None
 
     @classmethod
     def __pre_deserialize__(cls, d: dict) -> dict:
-        folder = d["folder"]
-        d["child_count"] = folder["childCount"]
+        folder: dict = d.get("folder", {})
+        d["child_count"] = folder.get("childCount", None)
         return d
 
 
-@dataclass
-class Application(DataClassJSONMixin):
+@dataclass(kw_only=True)
+class EntraEntity(DataClassJSONMixin):
+    """Entity data."""
+
+    id: str | None = None
+    display_name: str | None = field(
+        metadata=field_options(alias="displayName"), default=None
+    )
+
+
+@dataclass(kw_only=True)
+class Application(EntraEntity):
     """Application data."""
 
-    id: str | None = None
-    display_name: str | None = field(metadata=field_options(alias="displayName"), default=None)
 
-
-@dataclass
-class User(DataClassJSONMixin):
+@dataclass(kw_only=True)
+class User(EntraEntity):
     """Owner of an item."""
 
-    id: str | None = None
     email: str | None = None
-    display_name: str | None = field(metadata=field_options(alias="displayName"), default=None)
-    
 
 
-@dataclass
+@dataclass(kw_only=True)
 class Contributor(DataClassJSONMixin):
     """Owner of an item."""
 
@@ -102,20 +105,12 @@ class Contributor(DataClassJSONMixin):
     application: Application | None = None
 
 
-@dataclass
-class AppRoot(Item):
+@dataclass(kw_only=True)
+class AppRoot(Folder):
     """Describes a folder item."""
 
-    child_count: int
 
-    @classmethod
-    def __pre_deserialize__(cls, d: dict) -> dict:
-        folder = d["folder"]
-        d["child_count"] = folder["childCount"]
-        return d
-
-
-@dataclass
+@dataclass(kw_only=True)
 class ItemUpdate(DataClassJSONMixin):
     """Update data for an item."""
 
