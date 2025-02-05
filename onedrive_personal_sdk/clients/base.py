@@ -48,7 +48,7 @@ class OneDriveBaseClient:
             raise ClientException from err
 
         if response.status >= 400:
-            if response.status in (401, 403):
+            if response.status == 403:
                 raise AuthenticationError(response.status, await response.text())
             if response.status == 404:
                 raise NotFoundError(response.status, await response.text())
