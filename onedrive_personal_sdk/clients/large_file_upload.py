@@ -3,10 +3,11 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from collections.abc import Callable, Awaitable
 
 from aiohttp import ClientSession
 
-from onedrive_personal_sdk.clients.base import OneDriveBaseClient, TokenProvider
+from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, HttpMethod, ConflictBehavior
 from onedrive_personal_sdk.exceptions import (
     HashMismatchError,
@@ -38,13 +39,13 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
     def __init__(
         self,
-        token_provider: TokenProvider,
+        get_access_token: Callable[[], Awaitable[str]],
         file: FileInfo,
         session: ClientSession | None = None,
     ) -> None:
         """Initialize the upload."""
 
-        super().__init__(token_provider, session)
+        super().__init__(get_access_token, session)
 
         self._file = file
 
@@ -57,7 +58,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
     @classmethod
     async def upload(
         cls,
-        token_provider: TokenProvider,
+        get_access_token: Callable[[], Awaitable[str]],
         file: FileInfo,
         max_retries: int = MAX_RETRIES,
         upload_chunk_size: int = UPLOAD_CHUNK_SIZE,
@@ -68,7 +69,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
     ) -> File:
         """Upload a file."""
         self = cls(
-            token_provider,
+            get_access_token,
             file,
             session,
         )

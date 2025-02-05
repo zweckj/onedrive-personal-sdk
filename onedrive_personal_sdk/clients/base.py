@@ -1,6 +1,7 @@
 """OneDrive base API client."""
 
 from abc import abstractmethod
+from collections.abc import Callable, Awaitable
 
 from aiohttp import ClientError, ClientResponse, ClientSession
 
@@ -13,22 +14,16 @@ from onedrive_personal_sdk.exceptions import (
 )
 
 
-class TokenProvider:
-    """Class that provides auth tokens."""
-
-    @abstractmethod
-    async def async_get_access_token(self) -> str:
-        """Get the access token."""
-
-
 class OneDriveBaseClient:
     """OneDrive base API client."""
 
     def __init__(
-        self, token_provider: TokenProvider, session: ClientSession | None = None
+        self,
+        get_access_token: Callable[[], Awaitable[str]],
+        session: ClientSession | None = None,
     ) -> None:
         """Initialize the client."""
-        self._token_provider = token_provider
+        self._get_access_token = get_access_token
         self._session = session or ClientSession()
 
     async def _request(
@@ -37,7 +32,7 @@ class OneDriveBaseClient:
         """Make a request to the API."""
         headers = kwargs.pop("headers", {})
         if authorize:
-            token = await self._token_provider.async_get_access_token()
+            token = await self._get_access_token()
             headers["Authorization"] = f"Bearer {token}"
 
         try:
