@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from aiohttp import ClientSession
 
@@ -50,7 +50,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         self._start = 0
         self._buffer = UploadBuffer()
-        self._upload_result = LargeFileChunkUploadResult(datetime.now(), ["0-"])
+        self._upload_result = LargeFileChunkUploadResult(
+            datetime.now(timezone.utc), ["0-"]
+        )
 
     @classmethod
     async def upload(
@@ -84,7 +86,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
             except UploadSessionExpired:
                 _LOGGER.debug("Session expired/not found, restarting")
                 self._buffer = UploadBuffer()
-                self._upload_result = LargeFileChunkUploadResult(datetime.now(), ["0-"])
+                self._upload_result = LargeFileChunkUploadResult(
+                    datetime.now(timezone.utc), ["0-"]
+                )
                 self._start = 0
                 retries += 1
             # except ExpectedRangeNotInBufferError:
@@ -151,7 +155,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         if (
                             self._upload_result.expiration_date_time
                             and self._upload_result.expiration_date_time
-                            <= datetime.now()
+                            <= datetime.now(timezone.utc)
                         ):
                             _LOGGER.debug("Session expired")
                             raise UploadSessionExpired from err
