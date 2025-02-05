@@ -1,7 +1,7 @@
 [project]
 name = "onedrive-personal-sdk"
-version = "0.0.4"
-license = {text = "MIT License"}
+version = "0.0.5"
+license = {text = "MIT"}
 description = "A package to interact with the Microsoft Graph API for personal OneDrives."
 readme = "README.md"
 authors = [{name = "Josef Zweck", email = "josef@zweck.dev"}]
