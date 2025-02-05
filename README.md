@@ -6,35 +6,39 @@ OneDrive Personal SDK is a Python library for interacting with a personal OneDri
 
 ## Getting an authentication token
 
-The library is built to support different token providers. To define a token provider you need to inherit from `TokenProvider` and implement the `async_get_access_token` method. The method should return a valid token string.
+The library is built to support different token providers. To add authentication to the library you need to define a `get_access_token` method and pass that to the library.
 
-To use `msal` as a token provider you can create a class like the following:
+To use `msal` as a token provider you can create that function like the following:
 
 ```python
 from msal import PublicClientApplication
-from onedrive_personal_sdk import TokenProvider
 
-class MsalTokenProvider(PublicClientApplication, TokenProvider):
-    def __init__(self, client_id: str, authority: str, scopes: list[str]):
-        super().__init__(client_id, authority=authority)
-        self._scopes = scopes
+app = PublicClientApplication(
+    "Client ID",
+    authority="https://login.microsoftonline.com/consumers",
+)
 
-    async def async_get_access_token(self) -> str:
-        result = self.acquire_token_interactive(scopes=self._scopes)
-        return result["access_token"]
+
+async def get_access_token(self) -> str:
+    result = app.acquire_token_interactive(
+        scopes=[
+            "Files.ReadWrite.All",
+        ]
+    )
+    return result["access_token"]
 ```
 
 ## Creating a client
 
-To create a client you need to provide a token provider.
+To create a client you need to provide a function to retrieve an access token.
 
 ```python
 from onedrive_personal_sdk import OneDriveClient
 
-client = OneDriveClient(auth_provider)
+client = OneDriveClient(get_access_token)
 
 # can also be created with a custom aiohttp session
-client = OneDriveClient(auth_provider, session=session)
+client = OneDriveClient(get_access_token, session=session)
 ```
 
 # Calling the API
