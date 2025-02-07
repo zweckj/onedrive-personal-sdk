@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 from aiohttp import StreamReader, ClientTimeout
 
@@ -45,9 +46,7 @@ class OneDriveClient(OneDriveBaseClient):
         items: list[File | Folder] = []
         next_link = f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/children"
         while next_link:
-            response = await self._request_json(
-                HttpMethod.GET, next_link
-            )
+            response = await self._request_json(HttpMethod.GET, next_link)
             items.extend(self._dict_to_item(item) for item in response["value"])
             next_link = response.get("@odata.nextLink", "")
         return items
@@ -110,13 +109,12 @@ class OneDriveClient(OneDriveBaseClient):
         if fail_if_exists:
             raise OneDriveException("Folder already exists")
         return item
-        
 
     async def upload_file(
         self,
         parent_id: str,
         file_name: str,
-        file_stream: AsyncIterator[bytes],
+        data: Any,
         timeout: ClientTimeout = ClientTimeout(),
     ) -> File:
         """Upload a file to a drive. Max 250MB file size."""
@@ -124,7 +122,7 @@ class OneDriveClient(OneDriveBaseClient):
         response = await self._request_json(
             HttpMethod.PUT,
             f"{GRAPH_BASE_URL}/me/drive/items/{parent_id}:/{file_name}:/content",
-            data=file_stream,
+            data=data,
             headers=headers,
             timeout=timeout,
         )
