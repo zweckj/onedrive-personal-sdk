@@ -15,3 +15,18 @@ class HttpMethod(StrEnum):
     PATCH = "PATCH"
     DELETE = "DELETE"
     GET = "GET"
+
+class DriveType(StrEnum):
+    """Drive types."""
+
+    PERSONAL = "personal"
+    BUSINESS = "business"
+    DOCUMENT_LIBRARY = "documentLibrary"
+
+class DriveState(StrEnum):
+    """Drive states."""
+
+    NORMAL = "normal"
+    NEARING = "nearing"
+    CRITICAL = "critical"
+    EXCEEDED = "exceeded"

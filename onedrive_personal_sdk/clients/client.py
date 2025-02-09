@@ -1,7 +1,6 @@
 """The OneDrive API client."""
 
 import logging
-from collections.abc import AsyncIterator
 from typing import Any
 
 from aiohttp import StreamReader, ClientTimeout
@@ -12,7 +11,7 @@ from onedrive_personal_sdk.exceptions import (
     NotFoundError,
     OneDriveException,
 )
-from onedrive_personal_sdk.models.items import AppRoot, File, Folder, ItemUpdate
+from onedrive_personal_sdk.models.items import AppRoot, File, Folder, ItemUpdate, Drive
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +25,13 @@ class OneDriveClient(OneDriveBaseClient):
         if "file" in item:
             return File.from_dict(item)
         raise OneDriveException("Unknown item type")
+    
+    async def get_drive(self) -> Drive:
+        """Get the drive resource."""
+        result = await self._request_json(
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive"
+        )
+        return Drive.from_dict(result)
 
     async def get_drive_item(self, path_or_id: str) -> File | Folder:
         """Get a drive item by path."""

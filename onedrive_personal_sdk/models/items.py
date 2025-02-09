@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from mashumaro import field_options
 from mashumaro.mixins.json import DataClassJSONMixin
 
+from onedrive_personal_sdk.const import DriveState, DriveType
+
 
 @dataclass(kw_only=True)
 class ItemParentReference(DataClassJSONMixin):
@@ -27,7 +29,7 @@ class Item(DataClassJSONMixin):
     parent_reference: ItemParentReference = field(
         metadata=field_options(alias="parentReference")
     )
-    created_by: Contributor = field(metadata=field_options(alias="createdBy"))
+    created_by: IdentitySet = field(metadata=field_options(alias="createdBy"))
     size: int | None = None
     description: str | None = None
 
@@ -98,7 +100,7 @@ class User(EntraEntity):
 
 
 @dataclass(kw_only=True)
-class Contributor(DataClassJSONMixin):
+class IdentitySet(DataClassJSONMixin):
     """Owner of an item."""
 
     user: User | None = None
@@ -120,3 +122,23 @@ class ItemUpdate(DataClassJSONMixin):
 
     def __post_serialize__(self, d: dict) -> dict:
         return {k: v for k, v in d.items() if v is not None}
+
+@dataclass(kw_only=True)
+class DriveQuota(DataClassJSONMixin):
+    """Drive quota data."""
+
+    deleted: int
+    remaining: int
+    state: DriveState
+    total: int
+    used: int
+
+@dataclass(kw_only=True)
+class Drive(DataClassJSONMixin):
+    """Drive data."""
+
+    id: str
+    name: str
+    drive_type: DriveType = field(metadata=field_options(alias="driveType"))
+    owner: IdentitySet | None = None
+    quota: DriveQuota | None = None
