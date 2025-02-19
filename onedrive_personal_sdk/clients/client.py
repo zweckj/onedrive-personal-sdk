@@ -25,12 +25,10 @@ class OneDriveClient(OneDriveBaseClient):
         if "file" in item:
             return File.from_dict(item)
         raise OneDriveException("Unknown item type")
-    
+
     async def get_drive(self) -> Drive:
         """Get the drive resource."""
-        result = await self._request_json(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive"
-        )
+        result = await self._request_json(HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive")
         return Drive.from_dict(result)
 
     async def get_drive_item(self, path_or_id: str) -> File | Folder:
@@ -57,14 +55,22 @@ class OneDriveClient(OneDriveBaseClient):
             next_link = response.get("@odata.nextLink", "")
         return items
 
-    async def delete_drive_item(self, path_or_id: str) -> None:
+    async def delete_drive_item(
+        self, path_or_id: str, delete_permanently: bool = False
+    ) -> None:
         """Delete items in a drive."""
-
-        await self._request_json(
-            HttpMethod.DELETE,
-            f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}",
-            content_type=None,
-        )
+        if delete_permanently:
+            await self._request(
+                HttpMethod.POST,
+                f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}/permanentDelete",
+                data={},
+            )
+        else:
+            await self._request_json(
+                HttpMethod.DELETE,
+                f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}",
+                content_type=None,
+            )
 
     async def download_drive_item(
         self, path_or_id: str, timeout: ClientTimeout = ClientTimeout()
