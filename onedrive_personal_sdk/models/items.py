@@ -138,7 +138,7 @@ class Drive(DataClassJSONMixin):
     """Drive data."""
 
     id: str
-    name: str
-    drive_type: DriveType = field(metadata=field_options(alias="driveType"))
+    drive_type: DriveType = field(metadata=field_options(alias="driveType"), default=DriveType.PERSONAL)
+    name: str | None = None
     owner: IdentitySet | None = None
     quota: DriveQuota | None = None
