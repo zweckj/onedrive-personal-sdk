@@ -1,9 +1,8 @@
 """OneDrive base API client."""
 
-from abc import abstractmethod
 from collections.abc import Callable, Awaitable
 
-from aiohttp import ClientError, ClientResponse, ClientSession
+from aiohttp import ClientError, ClientResponse, ClientSession, ConnectionTimeoutError
 
 from onedrive_personal_sdk.const import HttpMethod
 from onedrive_personal_sdk.exceptions import (
@@ -11,6 +10,7 @@ from onedrive_personal_sdk.exceptions import (
     ClientException,
     HttpRequestException,
     NotFoundError,
+    TimeoutException,
 )
 
 
@@ -39,6 +39,8 @@ class OneDriveBaseClient:
             response = await self._session.request(
                 method.value, url, headers=headers, **kwargs
             )
+        except ConnectionTimeoutError as err:
+            raise TimeoutException from err
         except ClientError as err:
             raise ClientException from err
 
