@@ -23,6 +23,8 @@ class AuthenticationError(HttpRequestException):
 class NotFoundError(HttpRequestException):
     """Exception raised when item is not found."""
 
+class TimeoutException(TimeoutError, OneDriveException):
+    """Exception raised when an API request times out."""
 
 class ClientException(ClientError, OneDriveException):
     """Exception raised when an API request fails."""
