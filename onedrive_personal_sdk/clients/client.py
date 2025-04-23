@@ -41,7 +41,7 @@ class OneDriveClient(OneDriveBaseClient):
     async def get_approot(self) -> AppRoot:
         """Get the approot."""
         result = await self._request_json(
-            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/special/approot:"
+            HttpMethod.GET, f"{GRAPH_BASE_URL}/me/drive/special/approot"
         )
         return AppRoot.from_dict(result)
 
