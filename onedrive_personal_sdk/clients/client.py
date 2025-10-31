@@ -85,14 +85,17 @@ class OneDriveClient(OneDriveBaseClient):
 
     async def update_drive_item(
         self, path_or_id: str, data: ItemUpdate
-    ) -> File | Folder:
+    ) -> File | Folder | None:
         """Update items in a drive."""
-        response = await self._request_json(
+        response = await self._request(
             HttpMethod.PATCH,
             f"{GRAPH_BASE_URL}/me/drive/items/{path_or_id}",
             json=data.to_dict(),
         )
-        return self._dict_to_item(response)
+        if response.status == 204:
+            return None
+        json = await response.json()
+        return self._dict_to_item(json)
 
     async def create_folder(
         self,
