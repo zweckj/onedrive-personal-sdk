@@ -85,7 +85,7 @@ class OneDriveClient(OneDriveBaseClient):
 
     async def update_drive_item(
         self, path_or_id: str, data: ItemUpdate
-    ) -> File | Folder | None:
+    ) -> File | Folder:
         """Update items in a drive."""
         response = await self._request(
             HttpMethod.PATCH,
@@ -93,7 +93,7 @@ class OneDriveClient(OneDriveBaseClient):
             json=data.to_dict(),
         )
         if response.status == 204:
-            return None
+            raise OneDriveException("Item update had no effect")
         json = await response.json()
         return self._dict_to_item(json)
 
