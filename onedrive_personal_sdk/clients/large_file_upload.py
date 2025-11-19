@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from collections.abc import Callable, Awaitable
+from mashumaro.exceptions import MissingField
 
 from aiohttp import ClientSession
 
@@ -84,8 +85,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
         while retries < self._max_retries:
             try:
                 return await self.start_upload(upload_session, validate_hash)
-            except UploadSessionExpired:
-                _LOGGER.debug("Session expired/not found, restarting")
+            except (UploadSessionExpired, MissingField):
+                _LOGGER.debug("Session expired/not found/broken, restarting")
                 self._buffer = UploadBuffer()
                 self._upload_result = LargeFileChunkUploadResult(
                     datetime.now(timezone.utc), ["0-"]
