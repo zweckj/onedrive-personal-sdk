@@ -2,19 +2,19 @@
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from collections.abc import Callable, Awaitable
-from mashumaro.exceptions import MissingField
 
 from aiohttp import ClientSession
+from mashumaro.exceptions import MissingField
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
-from onedrive_personal_sdk.const import GRAPH_BASE_URL, HttpMethod, ConflictBehavior
+from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
 from onedrive_personal_sdk.exceptions import (
+    ExpectedRangeNotInBufferError,
     HashMismatchError,
     HttpRequestException,
     OneDriveException,
-    ExpectedRangeNotInBufferError,
     UploadSessionExpired,
 )
 from onedrive_personal_sdk.models.items import File
@@ -132,8 +132,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
             if self._buffer.length >= self._upload_chunk_size:
                 uploaded_chunks = 0
                 while (
-                    self._buffer.length - uploaded_chunks * UPLOAD_CHUNK_SIZE
-                ) > self._upload_chunk_size:  # Loop in case the buffer is >= UPLOAD_CHUNK_SIZE * 2
+                    (self._buffer.length - uploaded_chunks * UPLOAD_CHUNK_SIZE)
+                    > self._upload_chunk_size
+                ):  # Loop in case the buffer is >= UPLOAD_CHUNK_SIZE * 2
                     slice_start = uploaded_chunks * self._upload_chunk_size
                     try:
                         chunk_result = await self._async_upload_chunk(
