@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
@@ -27,6 +28,10 @@ from onedrive_personal_sdk.models.upload import (
 from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
+MIN_CHUNK_SIZE = 320 * 1024  # 320kB minimum
+MAX_CHUNK_SIZE = 60 * 320 * 1024  # 19.2MB maximum
+CHUNK_SIZE_MULTIPLE = 320 * 1024  # Chunks must be multiples of 320kB
+TARGET_CHUNK_DURATION = 5.0  # Target 5 seconds per chunk
 MAX_RETRIES = 2
 MAX_CHUNK_RETRIES = 6
 _LOGGER = logging.getLogger(__name__)
@@ -37,6 +42,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
     _max_retries = MAX_RETRIES
     _upload_chunk_size = UPLOAD_CHUNK_SIZE
+    _smart_chunking = False
 
     def __init__(
         self,
@@ -67,6 +73,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         defer_commit: bool = False,
         validate_hash: bool = True,
         conflict_behavior: ConflictBehavior = ConflictBehavior.RENAME,
+        smart_chunking: bool = False,
     ) -> File:
         """Upload a file."""
         self = cls(
@@ -76,6 +83,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         )
         self._upload_chunk_size = upload_chunk_size
         self._max_retries = max_retries
+        self._smart_chunking = smart_chunking
 
         upload_session = await self.create_upload_session(
             defer_commit, conflict_behavior
@@ -136,6 +144,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     > self._upload_chunk_size
                 ):  # Loop in case the buffer is >= UPLOAD_CHUNK_SIZE * 2
                     slice_start = uploaded_chunks * self._upload_chunk_size
+                    chunk_start_time = time.time() if self._smart_chunking else None
                     try:
                         chunk_result = await self._async_upload_chunk(
                             upload_session.upload_url,
@@ -209,6 +218,31 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         await asyncio.sleep(2**retries)
                         continue
                     else:
+                        if self._smart_chunking and chunk_start_time is not None:
+                            chunk_duration = time.time() - chunk_start_time
+                            if chunk_duration > 0:
+                                # Calculate new chunk size based on target duration
+                                new_chunk_size = int(
+                                    self._upload_chunk_size
+                                    * (TARGET_CHUNK_DURATION / chunk_duration)
+                                )
+                                # Round to nearest multiple of 320kB
+                                new_chunk_size = (
+                                    round(new_chunk_size / CHUNK_SIZE_MULTIPLE)
+                                    * CHUNK_SIZE_MULTIPLE
+                                )
+                                # Clamp to min/max bounds
+                                new_chunk_size = max(
+                                    MIN_CHUNK_SIZE, min(MAX_CHUNK_SIZE, new_chunk_size)
+                                )
+                                if new_chunk_size != self._upload_chunk_size:
+                                    _LOGGER.debug(
+                                        "Adjusting chunk size from %d to %d bytes (%.2fs duration)",
+                                        self._upload_chunk_size,
+                                        new_chunk_size,
+                                        chunk_duration,
+                                    )
+                                    self._upload_chunk_size = new_chunk_size
                         if "file" in chunk_result:  # last chunk, no more ranges
                             result = chunk_result
                         else:
