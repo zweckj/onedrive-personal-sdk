@@ -324,7 +324,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         targeting TARGET_CHUNK_DURATION seconds per chunk. The chunk size is always
         a multiple of CHUNK_UNIT_SIZE (320kB) and capped at MAX_CHUNK_SIZE (60MB).
         """
-        if last_duration <= 0:
+        if last_duration <= 0.001:  # Minimum 1ms to avoid unrealistic speeds
             return
 
         # Calculate upload speed (bytes per second)
