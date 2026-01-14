@@ -144,7 +144,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 while (
                     (self._buffer.length - total_uploaded_bytes)
                     > self._upload_chunk_size
-                ):  # Loop in case the buffer is >= chunk_size * 2
+                ):  # Loop in case the buffer contains multiple chunks
                     # Capture current chunk size for this iteration
                     current_chunk_size = self._upload_chunk_size
                     slice_start = total_uploaded_bytes
