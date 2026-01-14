@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
@@ -29,6 +30,9 @@ from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
 MAX_RETRIES = 2
 MAX_CHUNK_RETRIES = 6
+CHUNK_UNIT_SIZE = 320 * 1024  # 320kB - OneDrive requires chunks to be multiples of this
+MAX_CHUNK_SIZE = 60 * 1024 * 1024  # 60MB - Maximum chunk size
+TARGET_CHUNK_DURATION = 5.0  # Target duration per chunk in seconds
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -37,6 +41,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
     _max_retries = MAX_RETRIES
     _upload_chunk_size = UPLOAD_CHUNK_SIZE
+    _adaptive_chunk_size = False
 
     def __init__(
         self,
@@ -55,6 +60,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self._upload_result = LargeFileChunkUploadResult(
             datetime.now(timezone.utc), ["0-"]
         )
+        self._last_chunk_duration: float | None = None
 
     @classmethod
     async def upload(
@@ -67,8 +73,23 @@ class LargeFileUploadClient(OneDriveBaseClient):
         defer_commit: bool = False,
         validate_hash: bool = True,
         conflict_behavior: ConflictBehavior = ConflictBehavior.RENAME,
+        adaptive_chunk_size: bool = False,
     ) -> File:
-        """Upload a file."""
+        """Upload a file.
+
+        Args:
+            get_access_token: Callable to get the access token.
+            file: File info object containing file metadata and content stream.
+            max_retries: Maximum number of session retries.
+            upload_chunk_size: Initial chunk size for upload.
+            session: Optional aiohttp ClientSession.
+            defer_commit: Whether to defer commit of the file.
+            validate_hash: Whether to validate the file hash after upload.
+            conflict_behavior: Behavior when file conflicts occur.
+            adaptive_chunk_size: When True, dynamically adapts chunk size based
+                on upload speed to target ~5 second chunk duration. Maximum chunk
+                size is 60MB and chunks are always multiples of 320kB.
+        """
         self = cls(
             get_access_token,
             file,
@@ -76,6 +97,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         )
         self._upload_chunk_size = upload_chunk_size
         self._max_retries = max_retries
+        self._adaptive_chunk_size = adaptive_chunk_size
 
         upload_session = await self.create_upload_session(
             defer_commit, conflict_behavior
@@ -274,6 +296,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
         headers["Content-Length"] = str(len(chunk_data))
         headers["Content-Type"] = "application/octet-stream"
         _LOGGER.debug(headers)
+
+        chunk_start_time = time.monotonic()
         result = await self._request_json(
             method=HttpMethod.PUT,
             url=upload_url,
@@ -281,7 +305,59 @@ class LargeFileUploadClient(OneDriveBaseClient):
             headers=headers,
             data=chunk_data,
         )
+        chunk_duration = time.monotonic() - chunk_start_time
+        self._last_chunk_duration = chunk_duration
+
+        chunk_size_bytes = len(chunk_data)
+        _LOGGER.debug(
+            "Chunk uploaded: size=%d bytes (%.2f MB), duration=%.2f seconds",
+            chunk_size_bytes,
+            chunk_size_bytes / (1024 * 1024),
+            chunk_duration,
+        )
+
+        if self._adaptive_chunk_size:
+            self._adjust_chunk_size(chunk_size_bytes, chunk_duration)
+
         return result
+
+    def _adjust_chunk_size(self, last_chunk_size: int, last_duration: float) -> None:
+        """Adjust chunk size based on upload speed to target ~5 second chunk duration.
+
+        The new chunk size is calculated based on the upload speed of the last chunk,
+        targeting TARGET_CHUNK_DURATION seconds per chunk. The chunk size is always
+        a multiple of CHUNK_UNIT_SIZE (320kB) and capped at MAX_CHUNK_SIZE (60MB).
+        """
+        if last_duration <= 0:
+            return
+
+        # Calculate upload speed (bytes per second)
+        upload_speed = last_chunk_size / last_duration
+
+        # Calculate target chunk size for TARGET_CHUNK_DURATION seconds
+        target_chunk_size = upload_speed * TARGET_CHUNK_DURATION
+
+        # Round down to nearest multiple of CHUNK_UNIT_SIZE (320kB)
+        new_chunk_size = int(target_chunk_size // CHUNK_UNIT_SIZE) * CHUNK_UNIT_SIZE
+
+        # Ensure minimum chunk size of one unit
+        new_chunk_size = max(new_chunk_size, CHUNK_UNIT_SIZE)
+
+        # Cap at maximum chunk size
+        new_chunk_size = min(new_chunk_size, MAX_CHUNK_SIZE)
+
+        if new_chunk_size != self._upload_chunk_size:
+            _LOGGER.debug(
+                "Adaptive chunk size: adjusted from %d bytes (%.2f MB) to %d bytes (%.2f MB) "
+                "(upload speed: %.2f MB/s, last chunk duration: %.2f s)",
+                self._upload_chunk_size,
+                self._upload_chunk_size / (1024 * 1024),
+                new_chunk_size,
+                new_chunk_size / (1024 * 1024),
+                upload_speed / (1024 * 1024),
+                last_duration,
+            )
+            self._upload_chunk_size = new_chunk_size
 
     async def commit_file(
         self,
