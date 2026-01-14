@@ -140,19 +140,22 @@ class LargeFileUploadClient(OneDriveBaseClient):
             quick_xor_hash.update(chunk)
             if self._buffer.length >= self._upload_chunk_size:
                 uploaded_chunks = 0
+                total_uploaded_bytes = 0
                 while (
-                    (self._buffer.length - uploaded_chunks * self._upload_chunk_size)
+                    (self._buffer.length - total_uploaded_bytes)
                     > self._upload_chunk_size
                 ):  # Loop in case the buffer is >= chunk_size * 2
-                    slice_start = uploaded_chunks * self._upload_chunk_size
+                    # Capture current chunk size for this iteration
+                    current_chunk_size = self._upload_chunk_size
+                    slice_start = total_uploaded_bytes
                     try:
                         chunk_start_time = time.time() if self._smart_chunking else None
                         chunk_result = await self._async_upload_chunk(
                             upload_session.upload_url,
                             self._start,
-                            self._start + self._upload_chunk_size - 1,
+                            self._start + current_chunk_size - 1,
                             self._buffer.buffer[
-                                slice_start : slice_start + self._upload_chunk_size
+                                slice_start : slice_start + current_chunk_size
                             ],
                         )
                     except HttpRequestException as err:
@@ -193,7 +196,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                                 continue
                             # it just wants the next regular range
                             if next_expected_ranges.next_expected_range_start == (
-                                self._start + self._upload_chunk_size
+                                self._start + current_chunk_size
                             ):
                                 _LOGGER.debug("Next range is next regular range")
                                 self._upload_result = next_expected_ranges
@@ -208,6 +211,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                                     next_expected_ranges.next_expected_range_start
                                 )
                                 uploaded_chunks = 0
+                                total_uploaded_bytes = 0
                                 continue
                         else:
                             raise
@@ -226,7 +230,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             if chunk_duration > MIN_TIMING_THRESHOLD:
                                 # Calculate new chunk size based on target duration
                                 new_chunk_size = int(
-                                    self._upload_chunk_size
+                                    current_chunk_size
                                     * (TARGET_CHUNK_DURATION / chunk_duration)
                                 )
                                 # Round to nearest multiple of 320kB, ensuring at least 1x
@@ -258,7 +262,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                                 self._upload_result.next_expected_ranges,
                             )
                     retries = 0
-                    self._start += self._upload_chunk_size
+                    self._start += current_chunk_size
+                    total_uploaded_bytes += current_chunk_size
                     uploaded_chunks += 1
 
                     # returned range is not what we expected, fix range
@@ -268,11 +273,10 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         _LOGGER.debug("Slice start did not expected slice")
                         await self._fix_range(expected_range)
                         uploaded_chunks = 0
+                        total_uploaded_bytes = 0
                         continue
 
-                self._buffer.buffer = self._buffer.buffer[
-                    self._upload_chunk_size * uploaded_chunks :
-                ]
+                self._buffer.buffer = self._buffer.buffer[total_uploaded_bytes:]
                 self._buffer.start_byte = self._start
 
         # upload the remaining bytes
