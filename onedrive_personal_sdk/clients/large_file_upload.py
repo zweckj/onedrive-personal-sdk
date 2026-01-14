@@ -32,6 +32,7 @@ MIN_CHUNK_SIZE = 320 * 1024  # 320kB minimum
 MAX_CHUNK_SIZE = 60 * 320 * 1024  # 19.2MB maximum
 CHUNK_SIZE_MULTIPLE = 320 * 1024  # Chunks must be multiples of 320kB
 TARGET_CHUNK_DURATION = 5.0  # Target 5 seconds per chunk
+MIN_TIMING_THRESHOLD = 0.1  # Minimum duration to adjust chunk size (prevent jitter)
 MAX_RETRIES = 2
 MAX_CHUNK_RETRIES = 6
 _LOGGER = logging.getLogger(__name__)
@@ -144,8 +145,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     > self._upload_chunk_size
                 ):  # Loop in case the buffer is >= chunk_size * 2
                     slice_start = uploaded_chunks * self._upload_chunk_size
-                    chunk_start_time = time.time() if self._smart_chunking else None
                     try:
+                        chunk_start_time = time.time() if self._smart_chunking else None
                         chunk_result = await self._async_upload_chunk(
                             upload_session.upload_url,
                             self._start,
@@ -220,9 +221,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     else:
                         if self._smart_chunking and chunk_start_time is not None:
                             chunk_duration = time.time() - chunk_start_time
-                            # Only adjust if duration is meaningful (> 0.1s)
+                            # Only adjust if duration is meaningful
                             # to avoid oscillations from network jitter
-                            if chunk_duration > 0.1:
+                            if chunk_duration > MIN_TIMING_THRESHOLD:
                                 # Calculate new chunk size based on target duration
                                 new_chunk_size = int(
                                     self._upload_chunk_size
