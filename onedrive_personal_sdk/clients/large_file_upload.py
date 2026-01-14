@@ -140,9 +140,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
             if self._buffer.length >= self._upload_chunk_size:
                 uploaded_chunks = 0
                 while (
-                    (self._buffer.length - uploaded_chunks * UPLOAD_CHUNK_SIZE)
+                    (self._buffer.length - uploaded_chunks * self._upload_chunk_size)
                     > self._upload_chunk_size
-                ):  # Loop in case the buffer is >= UPLOAD_CHUNK_SIZE * 2
+                ):  # Loop in case the buffer is >= chunk_size * 2
                     slice_start = uploaded_chunks * self._upload_chunk_size
                     chunk_start_time = time.time() if self._smart_chunking else None
                     try:
@@ -220,15 +220,17 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     else:
                         if self._smart_chunking and chunk_start_time is not None:
                             chunk_duration = time.time() - chunk_start_time
-                            if chunk_duration > 0:
+                            # Only adjust if duration is meaningful (> 0.1s)
+                            # to avoid oscillations from network jitter
+                            if chunk_duration > 0.1:
                                 # Calculate new chunk size based on target duration
                                 new_chunk_size = int(
                                     self._upload_chunk_size
                                     * (TARGET_CHUNK_DURATION / chunk_duration)
                                 )
-                                # Round to nearest multiple of 320kB
+                                # Round to nearest multiple of 320kB, ensuring at least 1x
                                 new_chunk_size = (
-                                    round(new_chunk_size / CHUNK_SIZE_MULTIPLE)
+                                    max(1, round(new_chunk_size / CHUNK_SIZE_MULTIPLE))
                                     * CHUNK_SIZE_MULTIPLE
                                 )
                                 # Clamp to min/max bounds
