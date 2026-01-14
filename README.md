@@ -99,3 +99,14 @@ file = FileInfo(
 )
 file = await LargeFileUploadClient.upload(auth_provider, file)
 ```
+
+The `LargeFileUploadClient` supports smart chunking to automatically adjust chunk sizes based on network speed:
+
+```python
+# Enable smart chunking to optimize upload speed
+file = await LargeFileUploadClient.upload(
+    auth_provider, 
+    file, 
+    smart_chunking=True  # Automatically adjusts chunk size to target 5s per chunk
+)
+```

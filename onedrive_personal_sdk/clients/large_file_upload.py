@@ -237,7 +237,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                                 )
                                 if new_chunk_size != self._upload_chunk_size:
                                     _LOGGER.debug(
-                                        "Adjusting chunk size from %d to %d bytes (%.2fs duration)",
+                                        "Adjusting chunk size from %d to %d bytes "
+                                        "(%.2fs duration)",
                                         self._upload_chunk_size,
                                         new_chunk_size,
                                         chunk_duration,
