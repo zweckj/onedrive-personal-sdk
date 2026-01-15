@@ -86,7 +86,7 @@ Larger files (and small files as well) can be uploaded with a `LargeFileUploadCl
 ```python
 import os
 from onedrive_personal_sdk import LargeFileUploadClient
-from onedrive_personal_sdk.models.upload FileInfo
+from onedrive_personal_sdk.models.upload import FileInfo
 
 filename = "testfile.txt"
 size = os.path.getsize(filename)
@@ -97,5 +97,18 @@ file = FileInfo(
     folder_path_id="root",
     content_stream=file_reader(filename),
 )
-file = await LargeFileUploadClient.upload(auth_provider, file)
+file = await LargeFileUploadClient.upload(get_access_token, file)
+```
+
+## Adaptive Chunk Size
+
+The `LargeFileUploadClient` supports adaptive chunk sizing to optimize upload performance based on your connection speed. When enabled, the client dynamically adjusts the chunk size to target approximately 5 seconds per chunk upload.
+
+```python
+file = await LargeFileUploadClient.upload(
+    get_access_token,
+    file,
+    smart_chunk_size=True,  # Enable adaptive chunk sizing
+    upload_chunk_size=320 * 1024,  # Initial chunk size (optional, default: 5.2MB)
+)
 ```
