@@ -151,9 +151,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
             self._buffer.buffer += chunk
             quick_xor_hash.update(chunk)
             if self._buffer.length >= self._upload_chunk_size:
-                uploaded_bytes = 0
+                total_uploaded_bytes = 0
                 while (
-                    (self._buffer.length - uploaded_bytes)
+                    (self._buffer.length - total_uploaded_bytes)
                     > self._upload_chunk_size
                 ):  # Loop in case the buffer is larger than chunk size
                     current_chunk_size = self._upload_chunk_size
@@ -163,7 +163,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             self._start,
                             self._start + current_chunk_size - 1,
                             self._buffer.buffer[
-                                uploaded_bytes : uploaded_bytes + current_chunk_size
+                                total_uploaded_bytes : total_uploaded_bytes + current_chunk_size
                             ],
                         )
                     except HttpRequestException as err:
@@ -218,7 +218,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                                 await self._fix_range(
                                     next_expected_ranges.next_expected_range_start
                                 )
-                                uploaded_bytes = 0
+                                total_uploaded_bytes = 0
                                 continue
                         else:
                             raise
@@ -242,7 +242,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             )
                     retries = 0
                     self._start += current_chunk_size
-                    uploaded_bytes += current_chunk_size
+                    total_uploaded_bytes += current_chunk_size
 
                     # returned range is not what we expected, fix range
                     if self._start != (
@@ -250,10 +250,10 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     ):
                         _LOGGER.debug("Slice start did not expected slice")
                         await self._fix_range(expected_range)
-                        uploaded_bytes = 0
+                        total_uploaded_bytes = 0
                         continue
 
-                self._buffer.buffer = self._buffer.buffer[uploaded_bytes:]
+                self._buffer.buffer = self._buffer.buffer[total_uploaded_bytes:]
                 self._buffer.start_byte = self._start
 
         # upload the remaining bytes
