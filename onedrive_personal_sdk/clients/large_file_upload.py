@@ -28,11 +28,12 @@ from onedrive_personal_sdk.models.upload import (
 from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
-MAX_RETRIES = 2
-MAX_CHUNK_RETRIES = 6
+MAX_RETRIES = 2 # Maximum upload session retries
+MAX_CHUNK_RETRIES = 6 # Maximum retries per chunk
 CHUNK_UNIT_SIZE = 320 * 1024  # 320kB - OneDrive requires chunks to be multiples of this
 MAX_CHUNK_SIZE = 60 * 1024 * 1024  # 60MB - Maximum chunk size
 TARGET_CHUNK_DURATION = 5.0  # Target duration per chunk in seconds
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -163,7 +164,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             self._start,
                             self._start + current_chunk_size - 1,
                             self._buffer.buffer[
-                                total_uploaded_bytes : total_uploaded_bytes + current_chunk_size
+                                total_uploaded_bytes : total_uploaded_bytes
+                                + current_chunk_size
                             ],
                         )
                     except HttpRequestException as err:
