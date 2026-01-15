@@ -41,7 +41,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
     _max_retries = MAX_RETRIES
     _upload_chunk_size = UPLOAD_CHUNK_SIZE
-    _adaptive_chunk_size = False
+    _smart_chunk_size = False
 
     def __init__(
         self,
@@ -72,7 +72,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         defer_commit: bool = False,
         validate_hash: bool = True,
         conflict_behavior: ConflictBehavior = ConflictBehavior.RENAME,
-        adaptive_chunk_size: bool = False,
+        smart_chunk_size: bool = False,
     ) -> File:
         """Upload a file.
 
@@ -85,7 +85,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
             defer_commit: Whether to defer commit of the file.
             validate_hash: Whether to validate the file hash after upload.
             conflict_behavior: Behavior when file conflicts occur.
-            adaptive_chunk_size: When True, dynamically adapts chunk size based
+            smart_chunk_size: When True, dynamically adapts chunk size based
                 on upload speed to target ~5 second chunk duration. Maximum chunk
                 size is 60MB and chunks are always multiples of 320kB.
         """
@@ -96,7 +96,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         )
         self._upload_chunk_size = upload_chunk_size
         self._max_retries = max_retries
-        self._adaptive_chunk_size = adaptive_chunk_size
+        self._smart_chunk_size = smart_chunk_size
 
         upload_session = await self.create_upload_session(
             defer_commit, conflict_behavior
@@ -312,7 +312,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
             chunk_duration,
         )
 
-        if self._adaptive_chunk_size:
+        if self._smart_chunk_size:
             self._adjust_chunk_size(chunk_size_bytes, chunk_duration)
 
         return result
@@ -344,7 +344,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         if new_chunk_size != self._upload_chunk_size:
             _LOGGER.debug(
-                "Adaptive chunk size: adjusted from %d bytes (%.2f MB) to %d bytes (%.2f MB) "
+                "Smart chunk size: adjusted from %d bytes (%.2f MB) to %d bytes (%.2f MB) "
                 "(upload speed: %.2f MB/s, last chunk duration: %.2f s)",
                 self._upload_chunk_size,
                 self._upload_chunk_size / (1024 * 1024),
