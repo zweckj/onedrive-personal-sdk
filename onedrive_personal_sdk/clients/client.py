@@ -93,7 +93,9 @@ class OneDriveClient(OneDriveBaseClient):
             json=data.to_dict(),
         )
         if response.status == 204:
-            raise OneDriveException("Item update had no effect")
+            # 204 No Content is a valid success response from Graph API
+            # Fetch the updated item to return it
+            return await self.get_drive_item(path_or_id)
         json = await response.json()
         return self._dict_to_item(json)
 
