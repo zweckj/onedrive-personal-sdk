@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from mashumaro import field_options
+from mashumaro.config import BaseConfig
 from mashumaro.mixins.json import DataClassJSONMixin
 
 from onedrive_personal_sdk.const import DriveState, DriveType
@@ -14,10 +15,18 @@ from onedrive_personal_sdk.const import DriveState, DriveType
 class ItemParentReference(DataClassJSONMixin):
     """Parent reference for an item."""
 
+    class Config(BaseConfig):
+        """Mashumaro config."""
+
+        serialize_by_alias = True
+
     id: str | None = None
     drive_id: str = field(metadata=field_options(alias="driveId"))
     path: str | None = None
     name: str | None = None
+
+    def __post_serialize__(self, d: dict) -> dict:
+        return {k: v for k, v in d.items() if v is not None}
 
 
 @dataclass(kw_only=True)
@@ -116,9 +125,16 @@ class AppRoot(Folder):
 class ItemUpdate(DataClassJSONMixin):
     """Update data for an item."""
 
+    class Config(BaseConfig):
+        """Mashumaro config."""
+
+        serialize_by_alias = True
+
     name: str | None = None
     description: str | None = None
-    parent_reference: ItemParentReference | None = None
+    parent_reference: ItemParentReference | None = field(
+        metadata=field_options(alias="parentReference"), default=None
+    )
 
     def __post_serialize__(self, d: dict) -> dict:
         return {k: v for k, v in d.items() if v is not None}
