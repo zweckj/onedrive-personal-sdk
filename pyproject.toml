@@ -1,6 +1,6 @@
 [project]
 name = "onedrive-personal-sdk"
-version = "0.1.0"
+version = "0.1.1"
 license = "MIT"
 description = "A package to interact with the Microsoft Graph API for personal OneDrives."
 readme = "README.md"

@@ -1,6 +1,8 @@
 """OneDrive base API client."""
 
-from collections.abc import Callable, Awaitable
+import logging
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 
 from aiohttp import ClientError, ClientResponse, ClientSession, ConnectionTimeoutError
 
@@ -12,6 +14,8 @@ from onedrive_personal_sdk.exceptions import (
     NotFoundError,
     TimeoutException,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class OneDriveBaseClient:
@@ -44,6 +48,20 @@ class OneDriveBaseClient:
         except ClientError as err:
             raise ClientException from err
 
+        date = response.headers.get(
+            "Date",
+            f"Estimated: {datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT')}",
+        )
+
+        _LOGGER.debug(
+            "%s %s - Status: %s, Date: %s, Request ID: %s, Client Request ID: %s",
+            method.value,
+            url,
+            response.status,
+            date,
+            response.headers.get("request-id", "N/A"),
+            response.headers.get("client-request-id", "N/A"),
+        )
         if response.status >= 400:
             if response.status == 403:
                 raise AuthenticationError(response.status, await response.text())
