@@ -158,15 +158,16 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     > self._upload_chunk_size
                 ):  # Loop in case the buffer is larger than chunk size
                     current_chunk_size = self._upload_chunk_size
+                    chunk_view = memoryview(self._buffer.buffer)[
+                        total_uploaded_bytes : total_uploaded_bytes
+                        + current_chunk_size
+                    ]
                     try:
                         chunk_result = await self._async_upload_chunk(
                             upload_session.upload_url,
                             self._start,
                             self._start + current_chunk_size - 1,
-                            self._buffer.buffer[
-                                total_uploaded_bytes : total_uploaded_bytes
-                                + current_chunk_size
-                            ],
+                            chunk_view,
                         )
                     except HttpRequestException as err:
                         _LOGGER.debug(
@@ -255,7 +256,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         total_uploaded_bytes = 0
                         continue
 
-                self._buffer.buffer = self._buffer.buffer[total_uploaded_bytes:]
+                del self._buffer.buffer[:total_uploaded_bytes]
                 self._buffer.start_byte = self._start
 
         # upload the remaining bytes
@@ -286,7 +287,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         return file
 
     async def _async_upload_chunk(
-        self, upload_url: str, start: int, end: int, chunk_data: bytearray
+        self, upload_url: str, start: int, end: int, chunk_data: bytearray | memoryview
     ) -> dict:
         """Upload a part to the session."""
 
@@ -389,9 +390,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         ):
             raise ExpectedRangeNotInBufferError(expected_start=expected_start)
         _LOGGER.debug("Fixing range to %s", expected_start)
-        self._buffer.buffer = self._buffer.buffer[
-            (expected_start - self._buffer.start_byte) :
-        ]
+        del self._buffer.buffer[: (expected_start - self._buffer.start_byte)]
         self._buffer.start_byte = expected_start
         self._start = expected_start
 
