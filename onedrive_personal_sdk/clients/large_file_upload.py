@@ -256,7 +256,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         total_uploaded_bytes = 0
                         continue
 
-                del self._buffer.buffer[:total_uploaded_bytes]
+                self._buffer.buffer = self._buffer.buffer[total_uploaded_bytes:]
                 self._buffer.start_byte = self._start
 
         # upload the remaining bytes
