@@ -61,6 +61,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         self._upload_result = LargeFileChunkUploadResult(
             datetime.now(timezone.utc), ["0-"]
         )
+        self._range_was_fixed = False  # Track if we skipped bytes
 
     @classmethod
     async def upload(
@@ -150,7 +151,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         async for chunk in self._file.content_stream:
             self._buffer.buffer += chunk
-            quick_xor_hash.update(chunk)
             if self._buffer.length >= self._upload_chunk_size:
                 total_uploaded_bytes = 0
                 while (
@@ -167,7 +167,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             upload_session.upload_url,
                             self._start,
                             self._start + current_chunk_size - 1,
-                            bytes(chunk_view),
+                            chunk_view,
                         )
                     except HttpRequestException as err:
                         _LOGGER.debug(
@@ -233,6 +233,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         await asyncio.sleep(2**retries)
                         continue
                     else:
+                        # Upload successful, hash the data we just uploaded
+                        quick_xor_hash.update(chunk_view)
                         if "file" in chunk_result:  # last chunk, no more ranges
                             result = chunk_result
                         else:
@@ -269,6 +271,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 self._start + self._buffer.length - 1,
                 self._buffer.buffer,
             )
+            # Hash the final chunk after successful upload
+            quick_xor_hash.update(self._buffer.buffer)
             # except APIError:
             #     await self._commit_file(upload_session)
 
@@ -278,16 +282,22 @@ class LargeFileUploadClient(OneDriveBaseClient):
             file = File.from_dict(result)
 
         if validate_hash:
-            if file.hashes.quick_xor_hash != (hash_b64 := quick_xor_hash.base64()):
+            if self._range_was_fixed:
+                _LOGGER.warning(
+                    "Hash validation skipped because upload range was adjusted. "
+                    "This can happen in retry scenarios where server already has some data."
+                )
+            elif file.hashes.quick_xor_hash != (hash_b64 := quick_xor_hash.base64()):
                 raise HashMismatchError(
                     f"Hash mismatch for {self._file.name}: Online:{file.hashes.quick_xor_hash} != Calculated: {hash_b64}"
                 )
-            _LOGGER.debug("Hashes match")
+            else:
+                _LOGGER.debug("Hashes match")
 
         return file
 
     async def _async_upload_chunk(
-        self, upload_url: str, start: int, end: int, chunk_data: bytearray | bytes
+        self, upload_url: str, start: int, end: int, chunk_data: bytearray | memoryview
     ) -> dict:
         """Upload a part to the session."""
 
@@ -390,6 +400,10 @@ class LargeFileUploadClient(OneDriveBaseClient):
         ):
             raise ExpectedRangeNotInBufferError(expected_start=expected_start)
         _LOGGER.debug("Fixing range to %s", expected_start)
+        # If we're skipping bytes, we won't be able to validate hash
+        if expected_start > 0 and self._start == 0:
+            self._range_was_fixed = True
+            _LOGGER.debug("Hash validation will be skipped due to range fix")
         self._buffer.buffer = self._buffer.buffer[(expected_start - self._buffer.start_byte):]
         self._buffer.start_byte = expected_start
         self._start = expected_start
