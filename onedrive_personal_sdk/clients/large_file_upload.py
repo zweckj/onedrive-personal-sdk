@@ -388,7 +388,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         if not (
             self._buffer.start_byte
             <= expected_start
-            < (self._start + self._buffer.length)
+            < (self._buffer.start_byte + self._buffer.length)
         ):
             raise ExpectedRangeNotInBufferError(expected_start=expected_start)
         _LOGGER.debug("Fixing range to %s", expected_start)
