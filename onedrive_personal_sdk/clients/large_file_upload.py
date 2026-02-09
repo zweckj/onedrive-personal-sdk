@@ -258,7 +258,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
                 # Create new buffer without the uploaded bytes to avoid BufferError
                 # from existing memoryview exports
-                self._buffer.buffer = bytearray(self._buffer.buffer[total_uploaded_bytes:])
+                self._buffer.buffer = self._buffer.buffer[total_uploaded_bytes:]
                 self._buffer.start_byte = self._start
 
         # upload the remaining bytes
