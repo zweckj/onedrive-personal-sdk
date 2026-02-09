@@ -390,7 +390,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         ):
             raise ExpectedRangeNotInBufferError(expected_start=expected_start)
         _LOGGER.debug("Fixing range to %s", expected_start)
-        del self._buffer.buffer[: (expected_start - self._buffer.start_byte)]
+        self._buffer.buffer = self._buffer.buffer[(expected_start - self._buffer.start_byte):]
         self._buffer.start_byte = expected_start
         self._start = expected_start
 
