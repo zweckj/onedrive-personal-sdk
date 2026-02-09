@@ -167,7 +167,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             upload_session.upload_url,
                             self._start,
                             self._start + current_chunk_size - 1,
-                            chunk_view,
+                            bytes(chunk_view),
                         )
                     except HttpRequestException as err:
                         _LOGGER.debug(
@@ -287,7 +287,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         return file
 
     async def _async_upload_chunk(
-        self, upload_url: str, start: int, end: int, chunk_data: bytearray | memoryview
+        self, upload_url: str, start: int, end: int, chunk_data: bytearray | bytes
     ) -> dict:
         """Upload a part to the session."""
 
