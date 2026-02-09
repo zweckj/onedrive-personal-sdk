@@ -401,7 +401,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
             raise ExpectedRangeNotInBufferError(expected_start=expected_start)
         _LOGGER.debug("Fixing range to %s", expected_start)
         # If we're skipping bytes, we won't be able to validate hash
-        if expected_start > 0 and self._start == 0:
+        if expected_start != self._start:
             self._range_was_fixed = True
             _LOGGER.debug("Hash validation will be skipped due to range fix")
         self._buffer.buffer = self._buffer.buffer[(expected_start - self._buffer.start_byte):]
