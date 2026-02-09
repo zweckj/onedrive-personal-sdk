@@ -243,6 +243,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                                 "Next expected range: %s",
                                 self._upload_result.next_expected_ranges,
                             )
+                    finally:
+                        chunk_view.release()
                     retries = 0
                     self._start += current_chunk_size
                     total_uploaded_bytes += current_chunk_size
