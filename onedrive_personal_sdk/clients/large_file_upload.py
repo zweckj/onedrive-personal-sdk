@@ -150,7 +150,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         async for chunk in self._file.content_stream:
             self._buffer.buffer += chunk
-            quick_xor_hash.update(chunk)
             if self._buffer.length >= self._upload_chunk_size:
                 total_uploaded_bytes = 0
                 while (
@@ -162,6 +161,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         total_uploaded_bytes : total_uploaded_bytes
                         + current_chunk_size
                     ]
+                    quick_xor_hash.update(chunk_view)
                     try:
                         chunk_result = await self._async_upload_chunk(
                             upload_session.upload_url,
@@ -264,6 +264,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         # upload the remaining bytes
         if self._buffer.buffer:
             _LOGGER.debug("Last chunk")
+            quick_xor_hash.update(self._buffer.buffer)
             # try:
             result = await self._async_upload_chunk(
                 upload_session.upload_url,
