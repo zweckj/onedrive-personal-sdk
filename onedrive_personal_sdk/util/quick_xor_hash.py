@@ -3,6 +3,8 @@
 import struct
 import base64
 
+import numpy as np
+
 
 class QuickXorHash:
     """QuickXorHash implementation."""
@@ -25,30 +27,40 @@ class QuickXorHash:
 
     def update(self, data: bytes) -> None:
         """Update the hash with the given data."""
-        current_shift = self._shift_so_far
+        if not data:
+            return
 
+        data_len = len(data)
+        width = self.witdth_in_bits  # 160
+        current_shift = self._shift_so_far
+        iterations = min(data_len, width)
+
+        # Vectorized XOR reduction: collapse all bytes into 160 lanes
+        arr = np.frombuffer(data, dtype=np.uint8)
+        remainder = data_len % width
+        if remainder:
+            padded = np.zeros(data_len + (width - remainder), dtype=np.uint8)
+            padded[:data_len] = arr
+            arr = padded
+        xored = np.bitwise_xor.reduce(arr.reshape(-1, width), axis=0)
+
+        # Scatter the 160 XOR'd bytes into the state (trivial loop)
         vector_array_index = current_shift // 64
         vector_offset = current_shift % 64
-        iterations = min(len(data), self.witdth_in_bits)
 
         for i in range(iterations):
             is_last_cell = vector_array_index == len(self._data) - 1
             bits_in_vector_cell = self.bits_in_last_cell if is_last_cell else 64
+            byte_val = int(xored[i])
 
             if vector_offset <= bits_in_vector_cell - 8:
-                for j in range(i, len(data), self.witdth_in_bits):
-                    self._data[vector_array_index] ^= data[j] << vector_offset
+                self._data[vector_array_index] ^= byte_val << vector_offset
             else:
                 index1 = vector_array_index
                 index2 = 0 if is_last_cell else vector_array_index + 1
                 low = bits_in_vector_cell - vector_offset
-
-                xored_byte = 0
-                for j in range(i, len(data), self.witdth_in_bits):
-                    xored_byte ^= data[j]
-
-                self._data[index1] ^= xored_byte << vector_offset
-                self._data[index2] ^= xored_byte >> low
+                self._data[index1] ^= byte_val << vector_offset
+                self._data[index2] ^= byte_val >> low
 
             vector_offset += self.shift
             while vector_offset >= bits_in_vector_cell:
@@ -56,9 +68,9 @@ class QuickXorHash:
                 vector_offset -= bits_in_vector_cell
 
         self._shift_so_far = (
-            self._shift_so_far + self.shift * (len(data) % self.witdth_in_bits)
-        ) % self.witdth_in_bits
-        self._length_so_far += len(data)
+            self._shift_so_far + self.shift * (data_len % width)
+        ) % width
+        self._length_so_far += data_len
 
     def digest(self) -> bytes:
         """Get the digest of the hash."""
