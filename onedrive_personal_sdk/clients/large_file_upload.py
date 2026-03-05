@@ -281,8 +281,10 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 self._start + self._buffer.length - 1,
                 self._buffer.buffer,
             )
+            self._start += self._buffer.length
+            total_uploaded_bytes += self._buffer.length
             if self._progress_callback:
-                self._progress_callback(self._buffer.length)
+                self._progress_callback(total_uploaded_bytes)
             # except APIError:
             #     await self._commit_file(upload_session)
 
