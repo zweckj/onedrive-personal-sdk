@@ -12,6 +12,7 @@ from mashumaro.exceptions import MissingField
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
 from onedrive_personal_sdk.exceptions import (
+    ClientException,
     ExpectedRangeNotInBufferError,
     HashMismatchError,
     HttpRequestException,
@@ -49,12 +50,14 @@ class LargeFileUploadClient(OneDriveBaseClient):
         get_access_token: Callable[[], Awaitable[str]],
         file: FileInfo,
         session: ClientSession | None = None,
+        progress_callback: Callable[[int], None] | None = None,
     ) -> None:
         """Initialize the upload."""
 
         super().__init__(get_access_token, session)
 
         self._file = file
+        self._progress_callback = progress_callback
 
         self._start = 0
         self._buffer = UploadBuffer()
@@ -74,6 +77,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         validate_hash: bool = True,
         conflict_behavior: ConflictBehavior = ConflictBehavior.RENAME,
         smart_chunk_size: bool = False,
+        progress_callback: Callable[[int], None] | None = None,
     ) -> File:
         """Upload a file.
 
@@ -89,11 +93,14 @@ class LargeFileUploadClient(OneDriveBaseClient):
             smart_chunk_size: When True, dynamically adapts chunk size based
                 on upload speed to target ~5 second chunk duration. Maximum chunk
                 size is 60MB and chunks are always multiples of 320kB.
+            progress_callback: Optional callback called with the number of
+                bytes uploaded after each chunk.
         """
         self = cls(
             get_access_token,
             file,
             session,
+            progress_callback,
         )
         self._upload_chunk_size = upload_chunk_size
         self._max_retries = max_retries
@@ -169,7 +176,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             self._start + current_chunk_size - 1,
                             chunk_view,
                         )
-                    except HttpRequestException as err:
+                    except (HttpRequestException, ClientException) as err:
                         _LOGGER.debug(
                             "Error during upload of chunk %s: %s: %s",
                             self._upload_result.next_expected_ranges,
@@ -248,6 +255,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     retries = 0
                     self._start += current_chunk_size
                     total_uploaded_bytes += current_chunk_size
+                    if self._progress_callback:
+                        self._progress_callback(total_uploaded_bytes)
 
                     # returned range is not what we expected, fix range
                     if self._start != (
@@ -272,6 +281,10 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 self._start + self._buffer.length - 1,
                 self._buffer.buffer,
             )
+            self._start += self._buffer.length
+            total_uploaded_bytes += self._buffer.length
+            if self._progress_callback:
+                self._progress_callback(total_uploaded_bytes)
             # except APIError:
             #     await self._commit_file(upload_session)
 
