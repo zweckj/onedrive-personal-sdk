@@ -12,6 +12,7 @@ from mashumaro.exceptions import MissingField
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
 from onedrive_personal_sdk.exceptions import (
+    ClientException,
     ExpectedRangeNotInBufferError,
     HashMismatchError,
     HttpRequestException,
@@ -227,6 +228,13 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             raise
                     except TimeoutError:
                         _LOGGER.debug("Timeout error, retrying")
+                        retries += 1
+                        if retries > MAX_CHUNK_RETRIES:
+                            raise
+                        await asyncio.sleep(2**retries)
+                        continue
+                    except ClientException:
+                        _LOGGER.debug("Connection error, retrying")
                         retries += 1
                         if retries > MAX_CHUNK_RETRIES:
                             raise
