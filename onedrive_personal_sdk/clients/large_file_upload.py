@@ -176,7 +176,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             self._start + current_chunk_size - 1,
                             chunk_view,
                         )
-                    except HttpRequestException as err:
+                    except (HttpRequestException, ClientException) as err:
                         _LOGGER.debug(
                             "Error during upload of chunk %s: %s: %s",
                             self._upload_result.next_expected_ranges,
@@ -239,13 +239,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             raise
                         await asyncio.sleep(2**retries)
                         continue
-                    except ClientException:
-                        _LOGGER.debug("Connection error, retrying")
-                        retries += 1
-                        if retries > MAX_CHUNK_RETRIES:
-                            raise
-                        await asyncio.sleep(2**retries)
-                        continue
                     else:
                         if "file" in chunk_result:  # last chunk, no more ranges
                             result = chunk_result
@@ -263,7 +256,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     self._start += current_chunk_size
                     total_uploaded_bytes += current_chunk_size
                     if self._progress_callback:
-                        self._progress_callback(current_chunk_size)
+                        self._progress_callback(total_uploaded_bytes)
 
                     # returned range is not what we expected, fix range
                     if self._start != (
