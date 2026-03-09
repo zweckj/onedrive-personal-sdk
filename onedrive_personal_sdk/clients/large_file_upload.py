@@ -176,7 +176,17 @@ class LargeFileUploadClient(OneDriveBaseClient):
                             self._start + current_chunk_size - 1,
                             chunk_view,
                         )
-                    except (HttpRequestException, ClientException) as err:
+                    except ClientException:
+                        retries += 1
+                        if retries > MAX_CHUNK_RETRIES:
+                            raise
+                        _LOGGER.debug(
+                            "Client error during upload of chunk %s, retrying",
+                            self._upload_result.next_expected_ranges,
+                        )
+                        await asyncio.sleep(2**retries)
+                        continue
+                    except HttpRequestException as err:
                         _LOGGER.debug(
                             "Error during upload of chunk %s: %s: %s",
                             self._upload_result.next_expected_ranges,
