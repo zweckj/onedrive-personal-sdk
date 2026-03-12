@@ -154,6 +154,8 @@ class LargeFileUploadClient(OneDriveBaseClient):
         retries = 0
         quick_xor_hash = QuickXorHash()
         result = {}
+        total_uploaded_bytes = 0
+        total_progress_bytes = 0
 
         async for chunk in self._file.content_stream:
             self._buffer.buffer += chunk
@@ -168,7 +170,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         total_uploaded_bytes : total_uploaded_bytes
                         + current_chunk_size
                     ]
-                    quick_xor_hash.update(chunk_view)
                     try:
                         chunk_result = await self._async_upload_chunk(
                             upload_session.upload_url,
@@ -250,6 +251,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
                         await asyncio.sleep(2**retries)
                         continue
                     else:
+                        quick_xor_hash.update(chunk_view)
                         if "file" in chunk_result:  # last chunk, no more ranges
                             result = chunk_result
                         else:
@@ -265,8 +267,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
                     retries = 0
                     self._start += current_chunk_size
                     total_uploaded_bytes += current_chunk_size
+                    total_progress_bytes += current_chunk_size
                     if self._progress_callback:
-                        self._progress_callback(total_uploaded_bytes)
+                        self._progress_callback(total_progress_bytes)
 
                     # returned range is not what we expected, fix range
                     if self._start != (
@@ -292,9 +295,9 @@ class LargeFileUploadClient(OneDriveBaseClient):
                 self._buffer.buffer,
             )
             self._start += self._buffer.length
-            total_uploaded_bytes += self._buffer.length
+            total_progress_bytes += self._buffer.length
             if self._progress_callback:
-                self._progress_callback(total_uploaded_bytes)
+                self._progress_callback(total_progress_bytes)
             # except APIError:
             #     await self._commit_file(upload_session)
 
