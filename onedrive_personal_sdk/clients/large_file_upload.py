@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from aiohttp import ClientSession
-from mashumaro.exceptions import MissingField
 
 from onedrive_personal_sdk.clients.base import OneDriveBaseClient
 from onedrive_personal_sdk.const import GRAPH_BASE_URL, ConflictBehavior, HttpMethod
@@ -29,7 +28,6 @@ from onedrive_personal_sdk.models.upload import (
 from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
-MAX_RETRIES = 2 # Maximum upload session retries
 MAX_CHUNK_RETRIES = 6 # Maximum retries per chunk
 CHUNK_UNIT_SIZE = 320 * 1024  # 320kB - OneDrive requires chunks to be multiples of this
 MAX_CHUNK_SIZE = 60 * 1024 * 1024  # 60MB - Maximum chunk size
@@ -41,7 +39,6 @@ _LOGGER = logging.getLogger(__name__)
 class LargeFileUploadClient(OneDriveBaseClient):
     """Upload large files chunked."""
 
-    _max_retries = MAX_RETRIES
     _upload_chunk_size = UPLOAD_CHUNK_SIZE
     _smart_chunk_size = False
 
@@ -70,7 +67,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
         cls,
         get_access_token: Callable[[], Awaitable[str]],
         file: FileInfo,
-        max_retries: int = MAX_RETRIES,
         upload_chunk_size: int = UPLOAD_CHUNK_SIZE,
         session: ClientSession | None = None,
         defer_commit: bool = False,
@@ -84,7 +80,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
         Args:
             get_access_token: Callable to get the access token.
             file: File info object containing file metadata and content stream.
-            max_retries: Maximum number of session retries.
             upload_chunk_size: Initial chunk size for upload.
             session: Optional aiohttp ClientSession.
             defer_commit: Whether to defer commit of the file.
@@ -103,28 +98,13 @@ class LargeFileUploadClient(OneDriveBaseClient):
             progress_callback,
         )
         self._upload_chunk_size = upload_chunk_size
-        self._max_retries = max_retries
         self._smart_chunk_size = smart_chunk_size
 
         upload_session = await self.create_upload_session(
             defer_commit, conflict_behavior
         )
 
-        retries = 0
-        while retries < self._max_retries:
-            try:
-                return await self.start_upload(upload_session, validate_hash)
-            except (UploadSessionExpired, MissingField):
-                _LOGGER.debug("Session expired/not found/broken, restarting")
-                self._buffer = UploadBuffer()
-                self._upload_result = LargeFileChunkUploadResult(
-                    datetime.now(timezone.utc), ["0-"]
-                )
-                self._start = 0
-                retries += 1
-            # except ExpectedRangeNotInBufferError:
-            #     raise  # TODO: Implement fix range by replaying
-        raise OneDriveException("Failed to upload file")
+        return await self.start_upload(upload_session, validate_hash)
 
     async def create_upload_session(
         self,
