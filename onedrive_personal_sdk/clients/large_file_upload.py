@@ -154,6 +154,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         retries = 0
         quick_xor_hash = QuickXorHash()
         result = {}
+        total_uploaded_bytes = 0
 
         async for chunk in self._file.content_stream:
             self._buffer.buffer += chunk
