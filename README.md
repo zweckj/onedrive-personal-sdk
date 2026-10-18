@@ -102,7 +102,7 @@ file = await LargeFileUploadClient.upload(get_access_token, file)
 
 ## Adaptive Chunk Size
 
-The `LargeFileUploadClient` supports adaptive chunk sizing to optimize upload performance based on your connection speed. When enabled, the client dynamically adjusts the chunk size to target approximately 5 seconds per chunk upload.
+The `LargeFileUploadClient` supports adaptive chunk sizing to optimize upload performance based on your connection speed. When enabled, the client dynamically adjusts the chunk size to target approximately 5 seconds per chunk upload, keeping it between 10MB and 60MB by default.
 
 ```python
 file = await LargeFileUploadClient.upload(
@@ -110,5 +110,10 @@ file = await LargeFileUploadClient.upload(
     file,
     smart_chunk_size=True,  # Enable adaptive chunk sizing
     upload_chunk_size=320 * 1024,  # Initial chunk size (optional, default: 5.2MB)
+    min_chunk_size=32 * 320 * 1024,  # Smallest adapted chunk size (optional, default: 10MB)
+    max_chunk_size=60 * 1024 * 1024,  # Largest adapted chunk size (optional, default: 60MB)
+    target_chunk_duration=5.0,  # Target seconds per chunk (optional, default: 5.0)
 )
 ```
+
+All chunk sizes must be multiples of 320kB, and the maximum must not exceed 60MB.
