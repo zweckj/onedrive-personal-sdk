@@ -3,7 +3,9 @@
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections import deque
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from datetime import datetime, timezone
 
 from aiohttp import ClientSession
@@ -29,21 +31,95 @@ from onedrive_personal_sdk.models.upload import (
 from onedrive_personal_sdk.util.quick_xor_hash import QuickXorHash
 
 UPLOAD_CHUNK_SIZE = 16 * 320 * 1024  # 5.2MB
-MAX_RETRIES = 2 # Maximum upload session retries
 MAX_CHUNK_RETRIES = 6 # Maximum retries per chunk
 CHUNK_UNIT_SIZE = 320 * 1024  # 320kB - OneDrive requires chunks to be multiples of this
+# Below this, the fixed per-request overhead dominates and the measured speed
+# drops, which would shrink the chunks further on every adjustment
+MIN_CHUNK_SIZE = 32 * CHUNK_UNIT_SIZE  # 10MB - Default minimum smart chunk size
 MAX_CHUNK_SIZE = 60 * 1024 * 1024  # 60MB - Maximum chunk size
 TARGET_CHUNK_DURATION = 5.0  # Target duration per chunk in seconds
+# Smart chunk sizing changes the size at most by this factor per chunk, so a
+# single slow or fast request can't swing it from one extreme to the other
+MAX_CHUNK_SIZE_FACTOR = 2
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _StreamPrefetcher:
+    """Read ahead from a content stream while chunks are being uploaded.
+
+    Without this, the source stream is idle during every chunk upload, and slow
+    sources (e.g. on-the-fly encryption) add their full latency on top of it.
+    """
+
+    def __init__(
+        self, stream: AsyncIterator[bytes], get_limit: Callable[[], int]
+    ) -> None:
+        """Initialize the prefetcher.
+
+        Args:
+            stream: The source stream.
+            get_limit: Returns how many bytes may be buffered ahead.
+        """
+        self._stream = stream
+        self._get_limit = get_limit
+        self._chunks: deque[bytes] = deque()
+        self._buffered = 0
+        self._done = False
+        self._error: Exception | None = None
+        self._data_available = asyncio.Event()
+        self._space_available = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+
+    def __aiter__(self) -> "_StreamPrefetcher":
+        return self
+
+    async def __anext__(self) -> bytes:
+        if self._task is None:
+            self._task = asyncio.create_task(self._read())
+        while not self._chunks:
+            if self._error is not None:
+                raise self._error
+            if self._done:
+                raise StopAsyncIteration
+            self._data_available.clear()
+            await self._data_available.wait()
+        chunk = self._chunks.popleft()
+        self._buffered -= len(chunk)
+        self._space_available.set()
+        return chunk
+
+    async def _read(self) -> None:
+        try:
+            async for chunk in self._stream:
+                self._chunks.append(chunk)
+                self._buffered += len(chunk)
+                self._data_available.set()
+                while self._buffered >= self._get_limit():
+                    self._space_available.clear()
+                    await self._space_available.wait()
+        except Exception as err:  # re-raised by the consumer
+            self._error = err
+        finally:
+            self._done = True
+            self._data_available.set()
+
+    async def aclose(self) -> None:
+        """Stop reading ahead."""
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._task
 
 
 class LargeFileUploadClient(OneDriveBaseClient):
     """Upload large files chunked."""
 
-    _max_retries = MAX_RETRIES
     _upload_chunk_size = UPLOAD_CHUNK_SIZE
     _smart_chunk_size = False
+    _min_chunk_size = MIN_CHUNK_SIZE
+    _max_chunk_size = MAX_CHUNK_SIZE
+    _target_chunk_duration = TARGET_CHUNK_DURATION
 
     def __init__(
         self,
@@ -58,6 +134,11 @@ class LargeFileUploadClient(OneDriveBaseClient):
 
         self._file = file
         self._progress_callback = progress_callback
+        # Read ahead up to one chunk, so the next chunk is ready when the
+        # current upload finishes
+        self._content_stream = _StreamPrefetcher(
+            file.content_stream, lambda: self._upload_chunk_size
+        )
 
         self._start = 0
         self._buffer = UploadBuffer()
@@ -70,7 +151,6 @@ class LargeFileUploadClient(OneDriveBaseClient):
         cls,
         get_access_token: Callable[[], Awaitable[str]],
         file: FileInfo,
-        max_retries: int = MAX_RETRIES,
         upload_chunk_size: int = UPLOAD_CHUNK_SIZE,
         session: ClientSession | None = None,
         defer_commit: bool = False,
@@ -78,24 +158,45 @@ class LargeFileUploadClient(OneDriveBaseClient):
         conflict_behavior: ConflictBehavior = ConflictBehavior.RENAME,
         smart_chunk_size: bool = False,
         progress_callback: Callable[[int], None] | None = None,
+        min_chunk_size: int = MIN_CHUNK_SIZE,
+        max_chunk_size: int = MAX_CHUNK_SIZE,
+        target_chunk_duration: float = TARGET_CHUNK_DURATION,
     ) -> File:
         """Upload a file.
 
         Args:
             get_access_token: Callable to get the access token.
             file: File info object containing file metadata and content stream.
-            max_retries: Maximum number of session retries.
             upload_chunk_size: Initial chunk size for upload.
             session: Optional aiohttp ClientSession.
             defer_commit: Whether to defer commit of the file.
             validate_hash: Whether to validate the file hash after upload.
             conflict_behavior: Behavior when file conflicts occur.
             smart_chunk_size: When True, dynamically adapts chunk size based
-                on upload speed to target ~5 second chunk duration. Maximum chunk
-                size is 60MB and chunks are always multiples of 320kB.
+                on upload speed to target target_chunk_duration seconds per
+                chunk, within min_chunk_size and max_chunk_size.
             progress_callback: Optional callback called with the number of
                 bytes uploaded after each chunk.
+            min_chunk_size: Smallest chunk size smart chunk sizing may pick.
+                Must be a multiple of 320kB.
+            max_chunk_size: Largest chunk size smart chunk sizing may pick.
+                Must be a multiple of 320kB and at most 60MB.
+            target_chunk_duration: Upload duration per chunk in seconds that
+                smart chunk sizing aims for.
         """
+        if (
+            min_chunk_size % CHUNK_UNIT_SIZE
+            or max_chunk_size % CHUNK_UNIT_SIZE
+            or not CHUNK_UNIT_SIZE <= min_chunk_size <= max_chunk_size <= MAX_CHUNK_SIZE
+        ):
+            raise ValueError(
+                "min_chunk_size and max_chunk_size must be multiples of "
+                f"{CHUNK_UNIT_SIZE} bytes with min_chunk_size <= max_chunk_size "
+                f"<= {MAX_CHUNK_SIZE} bytes"
+            )
+        if target_chunk_duration <= 0:
+            raise ValueError("target_chunk_duration must be positive")
+
         self = cls(
             get_access_token,
             file,
@@ -103,28 +204,22 @@ class LargeFileUploadClient(OneDriveBaseClient):
             progress_callback,
         )
         self._upload_chunk_size = upload_chunk_size
-        self._max_retries = max_retries
         self._smart_chunk_size = smart_chunk_size
+        self._min_chunk_size = min_chunk_size
+        self._max_chunk_size = max_chunk_size
+        self._target_chunk_duration = target_chunk_duration
 
-        upload_session = await self.create_upload_session(
-            defer_commit, conflict_behavior
-        )
-
-        retries = 0
-        while retries < self._max_retries:
-            try:
-                return await self.start_upload(upload_session, validate_hash)
-            except (UploadSessionExpired, MissingField):
-                _LOGGER.debug("Session expired/not found/broken, restarting")
-                self._buffer = UploadBuffer()
-                self._upload_result = LargeFileChunkUploadResult(
-                    datetime.now(timezone.utc), ["0-"]
-                )
-                self._start = 0
-                retries += 1
-            # except ExpectedRangeNotInBufferError:
-            #     raise  # TODO: Implement fix range by replaying
-        raise OneDriveException("Failed to upload file")
+        try:
+            upload_session = await self.create_upload_session(
+                defer_commit, conflict_behavior
+            )
+            return await self.start_upload(upload_session, validate_hash)
+        except MissingField as err:
+            raise OneDriveException(
+                f"Unexpected response from OneDrive: {err}"
+            ) from err
+        finally:
+            await self._content_stream.aclose()
 
     async def create_upload_session(
         self,
@@ -157,7 +252,7 @@ class LargeFileUploadClient(OneDriveBaseClient):
         total_uploaded_bytes = 0
         total_progress_bytes = 0
 
-        async for chunk in self._file.content_stream:
+        async for chunk in self._content_stream:
             self._buffer.buffer += chunk
             if self._buffer.length >= self._upload_chunk_size:
                 total_uploaded_bytes = 0
@@ -350,11 +445,12 @@ class LargeFileUploadClient(OneDriveBaseClient):
         return result
 
     def _adjust_chunk_size(self, last_chunk_size: int, last_duration: float) -> None:
-        """Adjust chunk size based on upload speed to target ~5 second chunk duration.
+        """Adjust chunk size based on upload speed to target the chunk duration.
 
         The new chunk size is calculated based on the upload speed of the last chunk,
-        targeting TARGET_CHUNK_DURATION seconds per chunk. The chunk size is always
-        a multiple of CHUNK_UNIT_SIZE (320kB) and capped at MAX_CHUNK_SIZE (60MB).
+        targeting the configured chunk duration. It changes by at most
+        MAX_CHUNK_SIZE_FACTOR per chunk, is always a multiple of CHUNK_UNIT_SIZE
+        (320kB) and within the configured minimum and maximum.
         """
         if last_duration <= 0.001:  # Minimum 1ms to avoid unrealistic speeds
             return
@@ -362,17 +458,18 @@ class LargeFileUploadClient(OneDriveBaseClient):
         # Calculate upload speed (bytes per second)
         upload_speed = last_chunk_size / last_duration
 
-        # Calculate target chunk size for TARGET_CHUNK_DURATION seconds
-        target_chunk_size = upload_speed * TARGET_CHUNK_DURATION
+        # Calculate target chunk size for the target duration
+        target_chunk_size = upload_speed * self._target_chunk_duration
+        target_chunk_size = min(
+            max(target_chunk_size, self._upload_chunk_size / MAX_CHUNK_SIZE_FACTOR),
+            self._upload_chunk_size * MAX_CHUNK_SIZE_FACTOR,
+        )
 
         # Round down to nearest multiple of CHUNK_UNIT_SIZE (320kB)
         new_chunk_size = int(target_chunk_size // CHUNK_UNIT_SIZE) * CHUNK_UNIT_SIZE
 
-        # Ensure minimum chunk size of one unit
-        new_chunk_size = max(new_chunk_size, CHUNK_UNIT_SIZE)
-
-        # Cap at maximum chunk size
-        new_chunk_size = min(new_chunk_size, MAX_CHUNK_SIZE)
+        new_chunk_size = max(new_chunk_size, self._min_chunk_size)
+        new_chunk_size = min(new_chunk_size, self._max_chunk_size)
 
         if new_chunk_size != self._upload_chunk_size:
             _LOGGER.debug(
